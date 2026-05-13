@@ -1,4 +1,4 @@
-# SOLIDWORKS API RAG Workspace
+# SOLIDWORKS API RAG and MCP Workspace
 
 This workspace starts with a crawler for SOLIDWORKS 2025 API Web Help pages.
 
