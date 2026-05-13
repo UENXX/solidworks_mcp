@@ -1,1 +1,4 @@
-data/`r`n.tmp/`r`nupstream_solidworks_mcp/`r`nvendor/solidworks-mcp/
+data/
+.tmp/
+upstream_solidworks_mcp/
+
