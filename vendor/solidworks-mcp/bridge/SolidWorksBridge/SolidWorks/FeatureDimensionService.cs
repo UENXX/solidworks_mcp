@@ -103,10 +103,16 @@ internal sealed record SquareTubeLengthSketchResolution(
     int Score,
     string Reason);
 
+internal sealed record NamedSquareTubeDimensionResolution(
+    Feature? SketchFeature,
+    DisplayDimension? DisplayDimension,
+    Dimension Dimension,
+    int Score);
+
 public interface IFeatureDimensionService
 {
     IReadOnlyList<FeatureDimensionCandidateInfo> ListFeatureDimensions(string featureName);
-    SquareTubeLengthUpdateResult SetSquareTubeLength(string featureName, CartesianAxis axis, string lengthExpression);
+    SquareTubeLengthUpdateResult SetSquareTubeLength(string featureName, CartesianAxis axis, string lengthExpression, string? dimensionName = null);
     AddDimensionResult AddDimension(
         AddDimensionKind dimensionKind,
         AddDimensionRole dimensionRole,
@@ -154,23 +160,44 @@ public class FeatureDimensionService : IFeatureDimensionService
 
     public IReadOnlyList<FeatureDimensionCandidateInfo> ListFeatureDimensions(string featureName)
     {
+        _connectionManager.EnsureConnected();
+        var doc = _connectionManager.SwApp!.IActiveDoc2
+            ?? throw new InvalidOperationException("No active document.");
         var feature = FindFeature(featureName);
-        var dimensions = EnumerateFeatureDimensions(feature)
-            .Select((item, index) => new FeatureDimensionCandidateInfo(
-                index,
-                feature.Name,
-                SafeGetFeatureTypeName(feature) ?? "unknown",
-                item.DimensionToken,
-                item.DisplayDimensionSelectionName,
-                item.Value,
-                item.FullName,
-                BuildHeuristicLabel(item.DimensionToken, item.FullName)))
-            .ToList();
+        var previousDisplayFeatureDimensions = TryGetDisplayFeatureDimensions(doc);
 
-        return dimensions.AsReadOnly();
+        try
+        {
+            TrySetDisplayFeatureDimensions(doc, true);
+
+            var dimensions = EnumerateFeatureDimensions(feature)
+                .Select((item, index) => new FeatureDimensionCandidateInfo(
+                    index,
+                    feature.Name,
+                    SafeGetFeatureTypeName(feature) ?? "unknown",
+                    item.DimensionToken,
+                    item.DisplayDimensionSelectionName,
+                    item.Value,
+                    item.FullName,
+                    BuildHeuristicLabel(item.DimensionToken, item.FullName)))
+                .ToList();
+
+            return dimensions.AsReadOnly();
+        }
+        finally
+        {
+            if (previousDisplayFeatureDimensions.HasValue)
+            {
+                TrySetDisplayFeatureDimensions(doc, previousDisplayFeatureDimensions.Value);
+            }
+        }
     }
 
-    public SquareTubeLengthUpdateResult SetSquareTubeLength(string featureName, CartesianAxis axis, string lengthExpression)
+    public SquareTubeLengthUpdateResult SetSquareTubeLength(
+        string featureName,
+        CartesianAxis axis,
+        string lengthExpression,
+        string? dimensionName = null)
     {
         if (string.IsNullOrWhiteSpace(lengthExpression))
         {
@@ -181,14 +208,29 @@ public class FeatureDimensionService : IFeatureDimensionService
         var doc = _connectionManager.SwApp!.IActiveDoc2
             ?? throw new InvalidOperationException("No active document.");
         var feature = FindFeature(featureName);
+        double newLengthMeters = ParseLengthExpressionToMeters(lengthExpression);
+
+        if (!string.IsNullOrWhiteSpace(dimensionName)
+            && TryResolveSquareTubeDimensionByName(doc, feature, dimensionName, out var namedResolution))
+        {
+            return UpdateSquareTubeNamedDimension(
+                doc,
+                feature,
+                namedResolution,
+                axis,
+                lengthExpression,
+                newLengthMeters);
+        }
+
         var sketchResolution = ResolveSquareTubeLengthControllingSketch(feature, axis, doc)
             ?? throw new InvalidOperationException(
-                $"Feature '{featureName}' does not expose a parent-owned 2D or 3D length-control sketch with a line segment aligned to axis {axis}.");
+                string.IsNullOrWhiteSpace(dimensionName)
+                    ? $"Feature '{featureName}' does not expose a parent-owned 2D or 3D length-control sketch with a line segment aligned to axis {axis}."
+                    : $"Dimension '{dimensionName}' was not found in the square-tube parent sketch scope, and feature '{featureName}' does not expose a fallback length-control sketch with a line segment aligned to axis {axis}.");
         var sketchFeature = sketchResolution.SketchFeature;
         var sketch = sketchFeature.GetSpecificFeature2() as ISketch
             ?? throw new InvalidOperationException($"Feature '{sketchFeature.Name}' is not a sketch feature.");
 
-        double newLengthMeters = ParseLengthExpressionToMeters(lengthExpression);
         var targetSegment = sketchResolution.Segment;
 
         bool createdDrivingDimension = false;
@@ -671,37 +713,100 @@ public class FeatureDimensionService : IFeatureDimensionService
     private static IEnumerable<(string DimensionToken, string DisplayDimensionSelectionName, string? FullName, double? Value)>
         EnumerateFeatureDimensions(Feature feature)
     {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var displayDimension = feature.GetFirstDisplayDimension() as DisplayDimension;
         while (displayDimension != null)
         {
-            var dimension = displayDimension.GetDimension2(0);
-            if (dimension != null)
+            if (TryCreateFeatureDimensionItem(displayDimension, out var item))
             {
-                string? fullName = TryReadDimensionFullName(dimension);
-                string? token = fullName;
-                if (string.IsNullOrWhiteSpace(token))
+                string key = $"{item.DimensionToken}|{item.DisplayDimensionSelectionName}";
+                if (seen.Add(key))
                 {
-                    token = dimension.GetNameForSelection();
-                }
-
-                if (!string.IsNullOrWhiteSpace(token))
-                {
-                    string displaySelectionName = displayDimension.GetNameForSelection();
-                    if (string.IsNullOrWhiteSpace(displaySelectionName))
-                    {
-                        displaySelectionName = token;
-                    }
-
-                    yield return (
-                        token.Trim(),
-                        displaySelectionName.Trim(),
-                        fullName,
-                        TryReadDimensionValue(dimension));
+                    yield return item;
                 }
             }
 
-            displayDimension = displayDimension.GetNext5();
+            displayDimension = SafeGetNextFeatureDisplayDimension(feature, displayDimension);
         }
+    }
+
+    private static DisplayDimension? SafeGetNextFeatureDisplayDimension(Feature feature, DisplayDimension current)
+    {
+        try
+        {
+            return feature.GetNextDisplayDimension(current) as DisplayDimension;
+        }
+        catch
+        {
+            try
+            {
+                return current.GetNext5();
+            }
+            catch
+            {
+                return null;
+            }
+        }
+    }
+
+    private static bool? TryGetDisplayFeatureDimensions(IModelDoc2 doc)
+    {
+        try
+        {
+            return doc.GetUserPreferenceToggle((int)swUserPreferenceToggle_e.swDisplayFeatureDimensions);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static void TrySetDisplayFeatureDimensions(IModelDoc2 doc, bool enabled)
+    {
+        try
+        {
+            doc.SetUserPreferenceToggle((int)swUserPreferenceToggle_e.swDisplayFeatureDimensions, enabled);
+        }
+        catch
+        {
+        }
+    }
+
+    private static bool TryCreateFeatureDimensionItem(
+        DisplayDimension displayDimension,
+        out (string DimensionToken, string DisplayDimensionSelectionName, string? FullName, double? Value) item)
+    {
+        item = default;
+        var dimension = displayDimension.GetDimension2(0);
+        if (dimension == null)
+        {
+            return false;
+        }
+
+        string? fullName = TryReadDimensionFullName(dimension);
+        string? token = fullName;
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            token = dimension.GetNameForSelection();
+        }
+
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return false;
+        }
+
+        string displaySelectionName = displayDimension.GetNameForSelection();
+        if (string.IsNullOrWhiteSpace(displaySelectionName))
+        {
+            displaySelectionName = token;
+        }
+
+        item = (
+            token.Trim(),
+            displaySelectionName.Trim(),
+            fullName,
+            TryReadDimensionValue(dimension));
+        return true;
     }
 
     private void TryAddMissingDrivingDimension(string featureName, string dimensionDescription)
@@ -1067,6 +1172,261 @@ public class FeatureDimensionService : IFeatureDimensionService
         string reason = $"Matched sketch '{SafeGetFeatureName(sketchFeature)}' because it contains an axis-{axis} line segment and scored {score}.";
         resolution = new SquareTubeLengthSketchResolution(sketchFeature, segment, score, reason);
         return true;
+    }
+
+    private static bool TryResolveSquareTubeDimensionByName(
+        IModelDoc2 doc,
+        Feature feature,
+        string dimensionName,
+        out NamedSquareTubeDimensionResolution resolution)
+    {
+        resolution = null!;
+        string normalizedName = NormalizeDimensionLookupName(dimensionName);
+        if (string.IsNullOrWhiteSpace(normalizedName))
+        {
+            return false;
+        }
+
+        var scopedMatches = EnumerateSquareTubeDimensionSearchFeatures(feature)
+            .Where(IsSketchFeature)
+            .SelectMany(sketchFeature => EnumerateNamedDimensions(sketchFeature)
+                .Where(candidate => DimensionNameMatches(candidate.DisplayDimension, candidate.Dimension, normalizedName))
+                .Select(candidate => new NamedSquareTubeDimensionResolution(
+                    sketchFeature,
+                    candidate.DisplayDimension,
+                    candidate.Dimension,
+                    ScoreSquareTubeLengthSketchCandidate(sketchFeature))))
+            .OrderByDescending(candidate => candidate.Score)
+            .ThenBy(candidate => SafeGetFeatureName(candidate.SketchFeature!), StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
+
+        if (scopedMatches != null)
+        {
+            resolution = scopedMatches;
+            return true;
+        }
+
+        var directDimension = TryGetDocumentParameter(doc, dimensionName);
+        if (directDimension != null)
+        {
+            resolution = new NamedSquareTubeDimensionResolution(
+                null,
+                null,
+                directDimension,
+                0);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static SquareTubeLengthUpdateResult UpdateSquareTubeNamedDimension(
+        IModelDoc2 doc,
+        Feature feature,
+        NamedSquareTubeDimensionResolution resolution,
+        CartesianAxis axis,
+        string lengthExpression,
+        double newLengthMeters)
+    {
+        var dimension = resolution.Dimension;
+        if (dimension.DrivenState == (int)swDimensionDrivenState_e.swDimensionDriven)
+        {
+            dimension.DrivenState = (int)swDimensionDrivenState_e.swDimensionDriving;
+        }
+
+        double? previousLength = TryReadDimensionValue(dimension);
+        SetDimensionSystemValue(dimension, newLengthMeters);
+        doc.EditRebuild3();
+        double? updatedLength = TryReadDimensionValue(dimension);
+
+        string displaySelectionName = resolution.DisplayDimension?.GetNameForSelection() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(displaySelectionName))
+        {
+            displaySelectionName = TryReadDimensionFullName(dimension)
+                ?? dimension.GetNameForSelection()
+                ?? string.Empty;
+        }
+
+        string? token = TryReadDimensionFullName(dimension) ?? dimension.GetNameForSelection();
+        string sketchFeatureName = SafeGetFeatureName(resolution.SketchFeature!) ?? "(direct dimension)";
+        string sketchType = resolution.SketchFeature == null
+            ? "direct-dimension"
+            : SafeGetFeatureTypeName(resolution.SketchFeature) ?? "unknown";
+
+        return new SquareTubeLengthUpdateResult(
+            feature.Name,
+            sketchFeatureName,
+            sketchType,
+            axis,
+            lengthExpression.Trim(),
+            newLengthMeters,
+            previousLength,
+            updatedLength,
+            previousLength ?? updatedLength ?? newLengthMeters,
+            1d,
+            false,
+            displaySelectionName.Trim(),
+            string.IsNullOrWhiteSpace(token) ? null : token.Trim(),
+            resolution.SketchFeature == null
+                ? "Updated the explicitly named square-tube length dimension by document parameter lookup."
+                : $"Updated the explicitly named square-tube length dimension in sketch '{sketchFeatureName}'.");
+    }
+
+    private static IEnumerable<Feature> EnumerateSquareTubeDimensionSearchFeatures(Feature feature)
+    {
+        var roots = new List<Feature>();
+
+        void Add(Feature? candidate)
+        {
+            if (candidate == null)
+            {
+                return;
+            }
+
+            if (!roots.Any(existing => ReferenceEquals(existing, candidate)))
+            {
+                roots.Add(candidate);
+            }
+        }
+
+        foreach (var parent in ResolveSquareTubeParentFeatureCandidates(feature))
+        {
+            Add(parent);
+        }
+
+        Add(feature);
+
+        var directOwnerSketch = ResolveOwningSketchFeature(feature);
+        string? directOwnerSketchName = directOwnerSketch == null ? null : SafeGetFeatureName(directOwnerSketch);
+        var visited = new HashSet<Feature>();
+
+        foreach (var root in roots)
+        {
+            if (visited.Add(root))
+            {
+                yield return root;
+            }
+
+            foreach (var candidate in EnumerateFeatureTree(root))
+            {
+                if (!visited.Add(candidate))
+                {
+                    continue;
+                }
+
+                if (string.Equals(SafeGetFeatureName(candidate), directOwnerSketchName, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                yield return candidate;
+            }
+        }
+    }
+
+    private static IEnumerable<(DisplayDimension DisplayDimension, Dimension Dimension)> EnumerateNamedDimensions(Feature feature)
+    {
+        var displayDimension = feature.GetFirstDisplayDimension() as DisplayDimension;
+        while (displayDimension != null)
+        {
+            var dimension = displayDimension.GetDimension2(0);
+            if (dimension != null)
+            {
+                yield return (displayDimension, dimension);
+            }
+
+            displayDimension = SafeGetNextFeatureDisplayDimension(feature, displayDimension);
+        }
+    }
+
+    private static bool DimensionNameMatches(DisplayDimension displayDimension, Dimension dimension, string normalizedName)
+    {
+        return DimensionNameMatches(TryReadDimensionFullName(dimension), normalizedName)
+            || DimensionNameMatches(SafeGetDimensionSelectionName(dimension), normalizedName)
+            || DimensionNameMatches(SafeGetDisplayDimensionSelectionName(displayDimension), normalizedName);
+    }
+
+    private static bool DimensionNameMatches(string? candidate, string normalizedName)
+    {
+        if (string.IsNullOrWhiteSpace(candidate))
+        {
+            return false;
+        }
+
+        string normalizedCandidate = NormalizeDimensionLookupName(candidate);
+        return string.Equals(normalizedCandidate, normalizedName, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(NormalizeDimensionShortName(normalizedCandidate), NormalizeDimensionShortName(normalizedName), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeDimensionLookupName(string value)
+        => value.Trim().Trim('"').Trim('\'');
+
+    private static string NormalizeDimensionShortName(string value)
+    {
+        int atIndex = value.IndexOf('@');
+        return atIndex <= 0 ? value : value[..atIndex];
+    }
+
+    private static Dimension? TryGetDocumentParameter(IModelDoc2 doc, string dimensionName)
+    {
+        foreach (string candidateName in EnumerateDocumentParameterNames(dimensionName))
+        {
+            try
+            {
+                var dimension = doc.Parameter(candidateName) as Dimension;
+                if (dimension != null)
+                {
+                    return dimension;
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        return null;
+    }
+
+    private static string? SafeGetDimensionSelectionName(Dimension dimension)
+    {
+        try
+        {
+            return dimension.GetNameForSelection();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? SafeGetDisplayDimensionSelectionName(DisplayDimension displayDimension)
+    {
+        try
+        {
+            return displayDimension.GetNameForSelection();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static IEnumerable<string> EnumerateDocumentParameterNames(string dimensionName)
+    {
+        string trimmed = NormalizeDimensionLookupName(dimensionName);
+        if (string.IsNullOrWhiteSpace(trimmed))
+        {
+            yield break;
+        }
+
+        yield return trimmed;
+
+        if (trimmed.StartsWith("D", StringComparison.OrdinalIgnoreCase)
+            && trimmed.Length > 1
+            && char.IsDigit(trimmed[1]))
+        {
+            yield return $"\"{trimmed}\"";
+        }
     }
 
     private static Feature? ResolveParentFeature(Feature feature)
@@ -1464,7 +1824,7 @@ public class FeatureDimensionService : IFeatureDimensionService
                 return (displayDimension, dimension);
             }
 
-            displayDimension = displayDimension.GetNext5();
+            displayDimension = SafeGetNextFeatureDisplayDimension(sketchFeature, displayDimension);
         }
 
         return null;

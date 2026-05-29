@@ -1,5 +1,6 @@
 using Moq;
 using SolidWorks.Interop.sldworks;
+using SolidWorks.Interop.swconst;
 using SolidWorksBridge.SolidWorks;
 using SolidWorksMcpApp.Tools;
 
@@ -7,6 +8,102 @@ namespace SolidWorksBridge.Tests.SolidWorks;
 
 public class FeatureDimensionServiceTests
 {
+    [Fact]
+    public void ListFeatureDimensions_EnumeratesAllFeatureDisplayDimensions()
+    {
+        var feature = new Mock<Feature>();
+        feature.Setup(f => f.Name).Returns("3D草图1");
+        feature.Setup(f => f.GetTypeName2()).Returns("3DProfileFeature");
+
+        var d1 = CreateDisplayDimension("D1@3D草图1", 1.0);
+        var d2 = CreateDisplayDimension("D2@3D草图1", 2.0);
+        var d3 = CreateDisplayDimension("D3@3D草图1", 3.0);
+
+        feature.Setup(f => f.GetFirstDisplayDimension()).Returns(d1.display.Object);
+        feature.Setup(f => f.GetNextDisplayDimension(d1.display.Object)).Returns(d2.display.Object);
+        feature.Setup(f => f.GetNextDisplayDimension(d2.display.Object)).Returns(d3.display.Object);
+        feature.Setup(f => f.GetNextDisplayDimension(d3.display.Object)).Returns((DisplayDimension)null!);
+        feature.Setup(f => f.GetNextFeature()).Returns((Feature)null!);
+
+        var doc = new Mock<IModelDoc2>();
+        doc.Setup(d => d.FirstFeature()).Returns(feature.Object);
+        doc.Setup(d => d.GetUserPreferenceToggle(It.IsAny<int>())).Returns(false);
+        doc.Setup(d => d.SetUserPreferenceToggle(It.IsAny<int>(), It.IsAny<bool>()));
+
+        var swApp = new Mock<ISldWorksApp>();
+        swApp.Setup(s => s.IActiveDoc2).Returns(doc.Object);
+
+        var manager = new Mock<ISwConnectionManager>();
+        manager.Setup(m => m.SwApp).Returns(swApp.Object);
+        manager.Setup(m => m.EnsureConnected());
+
+        var service = new FeatureDimensionService(manager.Object, Mock.Of<IEquationService>());
+
+        var result = service.ListFeatureDimensions("3D草图1");
+
+        Assert.Equal(3, result.Count);
+        Assert.Collection(
+            result,
+            item => Assert.Equal("D1@3D草图1", item.DimensionToken),
+            item => Assert.Equal("D2@3D草图1", item.DimensionToken),
+            item => Assert.Equal("D3@3D草图1", item.DimensionToken));
+        doc.Verify(d => d.SetUserPreferenceToggle(It.IsAny<int>(), true), Times.Once);
+        doc.Verify(d => d.SetUserPreferenceToggle(It.IsAny<int>(), false), Times.Once);
+    }
+
+    [Fact]
+    public void SetSquareTubeLength_WithDimensionName_UpdatesNamedParentSketchDimension()
+    {
+        var lengthDimension = CreateDisplayDimension("D3@3D鑽夊浘1", 1.0);
+        lengthDimension.dimension
+            .Setup(d => d.SetSystemValue3(
+                1.5,
+                (int)swSetValueInConfiguration_e.swSetValue_InThisConfiguration,
+                null!))
+            .Returns((int)swSetValueReturnStatus_e.swSetValue_Successful);
+
+        var lengthSketch = new Mock<Feature>();
+        lengthSketch.Setup(f => f.Name).Returns("3D鑽夊浘1");
+        lengthSketch.Setup(f => f.GetTypeName2()).Returns("3DProfileFeature");
+        lengthSketch.Setup(f => f.GetFirstDisplayDimension()).Returns(lengthDimension.display.Object);
+        lengthSketch.Setup(f => f.GetNextDisplayDimension(lengthDimension.display.Object)).Returns((DisplayDimension)null!);
+        lengthSketch.Setup(f => f.GetNextSubFeature()).Returns((Feature)null!);
+
+        var parentFeature = new Mock<Feature>();
+        parentFeature.Setup(f => f.Name).Returns("WeldmentParent");
+        parentFeature.Setup(f => f.GetFirstSubFeature()).Returns(lengthSketch.Object);
+
+        var tubeFeature = new Mock<Feature>();
+        tubeFeature.Setup(f => f.Name).Returns("Structural Member1");
+        tubeFeature.Setup(f => f.GetTypeName2()).Returns("StructuralMember");
+        tubeFeature.Setup(f => f.GetOwnerFeature()).Returns(parentFeature.Object);
+        tubeFeature.Setup(f => f.GetNextFeature()).Returns((Feature)null!);
+
+        var doc = new Mock<IModelDoc2>();
+        doc.Setup(d => d.FirstFeature()).Returns(tubeFeature.Object);
+        doc.Setup(d => d.EditRebuild3()).Returns(true);
+
+        var swApp = new Mock<ISldWorksApp>();
+        swApp.Setup(s => s.IActiveDoc2).Returns(doc.Object);
+
+        var manager = new Mock<ISwConnectionManager>();
+        manager.Setup(m => m.SwApp).Returns(swApp.Object);
+        manager.Setup(m => m.EnsureConnected());
+
+        var service = new FeatureDimensionService(manager.Object, Mock.Of<IEquationService>());
+
+        var result = service.SetSquareTubeLength("Structural Member1", CartesianAxis.Z, "1500mm", "D3@3D鑽夊浘1");
+
+        Assert.Equal("D3@3D鑽夊浘1", result.DimensionToken);
+        Assert.Equal("3D鑽夊浘1", result.SketchFeatureName);
+        Assert.Contains("explicitly named", result.Message);
+        lengthDimension.dimension.Verify(d => d.SetSystemValue3(
+            1.5,
+            (int)swSetValueInConfiguration_e.swSetValue_InThisConfiguration,
+            null!), Times.Once);
+        doc.Verify(d => d.EditRebuild3(), Times.Once);
+    }
+
     [Theory]
     [InlineData("x", CartesianAxis.X)]
     [InlineData("X", CartesianAxis.X)]
@@ -181,6 +278,22 @@ public class FeatureDimensionServiceTests
 
         Assert.NotNull(method);
         return (double)method!.Invoke(null, [expression])!;
+    }
+
+    private static (Mock<DisplayDimension> display, Mock<Dimension> dimension) CreateDisplayDimension(
+        string fullName,
+        double systemValue)
+    {
+        var display = new Mock<DisplayDimension>();
+        var dimension = new Mock<Dimension>();
+
+        dimension.Setup(d => d.FullName).Returns(fullName);
+        dimension.Setup(d => d.GetNameForSelection()).Returns(fullName);
+        dimension.SetupGet(d => d.SystemValue).Returns(systemValue);
+        display.Setup(d => d.GetDimension2(0)).Returns(dimension.Object);
+        display.Setup(d => d.GetNameForSelection()).Returns(fullName);
+
+        return (display, dimension);
     }
 
     private static (Mock<ISketchSegment> segment, Mock<ISketchLine> line) CreateSketchLine(

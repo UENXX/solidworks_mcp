@@ -39,19 +39,21 @@ public class FeatureDimensionTools(StaDispatcher sta, IFeatureDimensionService f
         return JsonSerializer.Serialize(result);
     }
 
-    [McpServerTool, Description("Control square-tube length by locating the square tube feature's parent feature, finding the parent-owned 2D or 3D sketch that defines tube length instead of the tube cross-section, selecting the line segment aligned with the requested global axis (X, Y, or Z), and updating its driving dimension to the requested length.")]
+    [McpServerTool, Description("Control square-tube length. If you already found the exact dimension name/token from ListFeatureDimensions, pass it as dimensionName and this tool will update that dimension directly. If dimensionName is omitted or cannot be resolved, the tool falls back to locating the square tube feature's parent-owned 2D/3D length-control sketch, choosing the line segment aligned with the requested global axis (X, Y, or Z), and updating or creating its driving dimension. Prefer dimensionName when available because square-tube length is often controlled by an external parent sketch dimension.")]
     public async Task<string> SetSquareTubeLength(
         [Description("Exact SolidWorks feature name for the square tube, for example Weldment1, Boss-Extrude3, or Structural Member2.")] string featureName,
-        [Description("Target axis used to choose the controlling sketch line: X, Y, or Z.")] string axis,
-        [Description("New tube length expression. Supports values like 1200mm, 1.2m, 120cm, or a bare meter value like 1.2.")] string lengthExpression)
+        [Description("Target axis used only when dimensionName is unknown or cannot be resolved: X, Y, or Z.")] string axis,
+        [Description("New tube length expression. Supports values like 1200mm, 1.2m, 120cm, or a bare meter value like 1.2.")] string lengthExpression,
+        [Description("Optional exact dimension name/token returned by ListFeatureDimensions, such as D1@3D草图1, FullName, or DisplayDimensionSelectionName. When provided, this dimension is updated directly before trying axis-based fallback.")] string? dimensionName = null)
     {
         var result = await sta.InvokeLoggedAsync(
             nameof(SetSquareTubeLength),
-            new { featureName, axis, lengthExpression },
+            new { featureName, axis, lengthExpression, dimensionName },
             () => featureDimensions.SetSquareTubeLength(
                 featureName,
                 ToolArgumentParsing.ParseCartesianAxis(axis, nameof(axis)),
-                lengthExpression));
+                lengthExpression,
+                dimensionName));
         return JsonSerializer.Serialize(result);
     }
 
