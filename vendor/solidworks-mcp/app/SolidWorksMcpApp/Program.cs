@@ -165,6 +165,7 @@ internal static class Program
         sc.AddSingleton<IFeatureService>(sp   => new FeatureService(sp.GetRequiredService<ISwConnectionManager>()));
         sc.AddSingleton<IAssemblyService>(sp  => new AssemblyService(sp.GetRequiredService<ISwConnectionManager>()));
         sc.AddSingleton<IEquationService>(sp  => new EquationService(sp.GetRequiredService<ISwConnectionManager>()));
+        sc.AddSingleton<IPointCloudExportService>(sp => new PointCloudExportService(sp.GetRequiredService<ISwConnectionManager>()));
         sc.AddSingleton<IFeatureDimensionService>(sp => new FeatureDimensionService(
             sp.GetRequiredService<ISwConnectionManager>(),
             sp.GetRequiredService<IEquationService>()));
@@ -196,6 +197,7 @@ internal static class Program
         builder.Services.AddSingleton(sharedSvc.GetRequiredService<IFeatureService>());
         builder.Services.AddSingleton(sharedSvc.GetRequiredService<IAssemblyService>());
         builder.Services.AddSingleton(sharedSvc.GetRequiredService<IEquationService>());
+        builder.Services.AddSingleton(sharedSvc.GetRequiredService<IPointCloudExportService>());
         builder.Services.AddSingleton(sharedSvc.GetRequiredService<IFeatureDimensionService>());
         builder.Services.AddSingleton(sharedSvc.GetRequiredService<IWorkflowService>());
 
@@ -207,6 +209,7 @@ internal static class Program
         builder.Services.AddTransient<SolidWorksMcpApp.Tools.AssemblyTools>();
         builder.Services.AddTransient<SolidWorksMcpApp.Tools.EquationTools>();
         builder.Services.AddTransient<SolidWorksMcpApp.Tools.FeatureDimensionTools>();
+        builder.Services.AddTransient<SolidWorksMcpApp.Tools.GeometryTools>();
         builder.Services.AddTransient<SolidWorksMcpApp.Tools.KnowledgeTools>();
 
         builder.Services

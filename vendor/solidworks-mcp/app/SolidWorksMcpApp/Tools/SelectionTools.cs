@@ -15,11 +15,21 @@ public class SelectionTools(StaDispatcher sta, ISelectionService selection)
         return JsonSerializer.Serialize(state);
     }
 
-    [McpServerTool, Description("List the active document's top-level FeatureManager tree items so modeling steps can be verified against the real tree state. This tool only works in non-edit state, so check GetEditState and finish any active sketch first.")]
+    [McpServerTool, Description("List only the active document's top-level FeatureManager tree items. Use this only when you already know the target component or feature is in the active document and do not need the full left-side navigation tree. This tool only works in non-edit state, so check GetEditState and finish any active sketch first.")]
     public async Task<string> ListFeatureTree()
     {
         var list = await sta.InvokeLoggedAsync(nameof(ListFeatureTree), null, selection.ListFeatureTree);
         return JsonSerializer.Serialize(list);
+    }
+
+    [McpServerTool, Description("Traverse the active SolidWorks document's FeatureManager tree exactly as shown in the left-side SolidWorks UI, including folders, components, features, and visible sub-items. Use this first when you need a faithful tree snapshot without opening every child part.")]
+    public async Task<string> TraverseActiveFeatureManagerTree()
+    {
+        var result = await sta.InvokeLoggedAsync(
+            nameof(TraverseActiveFeatureManagerTree),
+            null,
+            selection.TraverseActiveFeatureManagerTree);
+        return JsonSerializer.Serialize(result);
     }
 
     [McpServerTool, Description("Read the active document's sensor features, including alert thresholds, current values, and whether any alert is currently triggered. Use this when model health depends on SolidWorks sensors instead of only feature diagnostics.")]

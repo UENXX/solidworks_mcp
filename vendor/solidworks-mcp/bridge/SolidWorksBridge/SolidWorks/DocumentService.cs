@@ -59,6 +59,18 @@ public record SwSaveResult(string SourcePath, string OutputPath, string Format, 
 /// </summary>
 public record SwImageExportResult(string OutputPath, string MimeType, int Width, int Height, string? Base64Data);
 
+public record SwStandardViewImageExportResult(
+    string OutputDirectory,
+    string FileNamePrefix,
+    int Width,
+    int Height,
+    IReadOnlyList<SwNamedImageExportResult> Images);
+
+public record SwNamedImageExportResult(
+    SwStandardView View,
+    string ViewName,
+    SwImageExportResult Image);
+
 /// <summary>
 /// High-level document operations exposed to the MCP layer.
 /// </summary>
@@ -103,6 +115,14 @@ public interface IDocumentService
 
     /// <summary>Export the current active viewport to PNG.</summary>
     SwImageExportResult ExportCurrentViewPng(string outputPath, int width = 1600, int height = 900, bool includeBase64Data = false);
+
+    /// <summary>Export front/back/left/right/top/bottom standard views to PNG files.</summary>
+    SwStandardViewImageExportResult ExportStandardViewPngSet(
+        string outputDirectory,
+        string fileNamePrefix = "view",
+        int width = 1600,
+        int height = 900,
+        bool includeBase64Data = false);
 
     /// <summary>Return info for all currently open documents.</summary>
     SwDocumentInfo[] ListDocuments();
@@ -218,6 +238,45 @@ public class DocumentService : IDocumentService
         return _connectionManager.SwApp!.ExportCurrentViewPng(outputPath, width, height, includeBase64Data);
     }
 
+    public SwStandardViewImageExportResult ExportStandardViewPngSet(
+        string outputDirectory,
+        string fileNamePrefix = "view",
+        int width = 1600,
+        int height = 900,
+        bool includeBase64Data = false)
+    {
+        if (string.IsNullOrWhiteSpace(outputDirectory))
+        {
+            throw new ArgumentException("outputDirectory must not be empty.", nameof(outputDirectory));
+        }
+
+        if (string.IsNullOrWhiteSpace(fileNamePrefix))
+        {
+            throw new ArgumentException("fileNamePrefix must not be empty.", nameof(fileNamePrefix));
+        }
+
+        _connectionManager.EnsureConnected();
+        string normalizedDirectory = Path.GetFullPath(outputDirectory);
+        Directory.CreateDirectory(normalizedDirectory);
+
+        var images = new List<SwNamedImageExportResult>();
+        foreach (var view in SixOrthographicViews)
+        {
+            _connectionManager.SwApp!.ShowStandardView(view);
+            string viewName = view.ToString().ToLowerInvariant();
+            string outputPath = Path.Combine(normalizedDirectory, $"{fileNamePrefix}-{viewName}.png");
+            var image = _connectionManager.SwApp!.ExportCurrentViewPng(outputPath, width, height, includeBase64Data);
+            images.Add(new SwNamedImageExportResult(view, viewName, image));
+        }
+
+        return new SwStandardViewImageExportResult(
+            normalizedDirectory,
+            fileNamePrefix,
+            width,
+            height,
+            images.AsReadOnly());
+    }
+
     public SwDocumentInfo[] ListDocuments()
     {
         _connectionManager.EnsureConnected();
@@ -240,4 +299,14 @@ public class DocumentService : IDocumentService
             StatusCodes: statusCodes,
             Summary: summary);
     }
+
+    private static readonly SwStandardView[] SixOrthographicViews =
+    [
+        SwStandardView.Front,
+        SwStandardView.Back,
+        SwStandardView.Left,
+        SwStandardView.Right,
+        SwStandardView.Top,
+        SwStandardView.Bottom,
+    ];
 }

@@ -39,6 +39,7 @@ internal sealed class SolidWorksMcpHubTestClient : IDisposable
         "ListReferencePlanes",
         "GetSolidWorksContext",
         "GetEditState",
+        "TraverseActiveFeatureManagerTree",
         "ListModelHealthSensors",
         "GetFeatureDiagnostics",
         "SelectEntity",
@@ -63,18 +64,9 @@ internal sealed class SolidWorksMcpHubTestClient : IDisposable
         "Fillet",
         "Chamfer",
         "Shell",
-        "InsertComponent",
-        "AddMateCoincident",
-        "AddMateConcentric",
-        "AddMateParallel",
-        "AddMateDistance",
-        "AddMateAngle",
-        "ListComponents",
-        "ListComponentsRecursive",
-        "ResolveComponentTarget",
-        "AnalyzeSharedPartEditImpact",
-        "CheckInterference",
-        "ReplaceComponent",
+        "TraverseAssemblyChildFeatureTrees",
+        "SearchAssemblyChildFeatures",
+        "OpenAssemblyChildComponentForEditing",
         "DiagnoseActiveDocumentHealth",
         "ReviewModelStructureHygiene",
         "ReplaceNestedComponentAndVerifyPersistence",
@@ -417,6 +409,19 @@ internal sealed class McpDocumentService : IDocumentService
             ("height", height),
             ("includeBase64Data", includeBase64Data)));
 
+    public SwStandardViewImageExportResult ExportStandardViewPngSet(
+        string outputDirectory,
+        string fileNamePrefix = "view",
+        int width = 1600,
+        int height = 900,
+        bool includeBase64Data = false)
+        => _client.CallTool<SwStandardViewImageExportResult>("ExportStandardViewPngSet", SolidWorksMcpHubTestClient.Args(
+            ("outputDirectory", outputDirectory),
+            ("fileNamePrefix", fileNamePrefix),
+            ("width", width),
+            ("height", height),
+            ("includeBase64Data", includeBase64Data)));
+
     public SwDocumentInfo[] ListDocuments()
         => _client.CallTool<SwDocumentInfo[]>("ListDocuments");
 
@@ -451,6 +456,9 @@ internal sealed class McpSelectionService : ISelectionService
 
     public IReadOnlyList<FeatureTreeItemInfo> ListFeatureTree()
         => _client.CallTool<List<FeatureTreeItemInfo>>("ListFeatureTree");
+
+    public ActiveFeatureManagerTreeResult TraverseActiveFeatureManagerTree()
+        => _client.CallTool<ActiveFeatureManagerTreeResult>("TraverseActiveFeatureManagerTree");
 
     public IReadOnlyList<ModelHealthSensorInfo> ListModelHealthSensors()
         => _client.CallTool<List<ModelHealthSensorInfo>>("ListModelHealthSensors");
@@ -657,22 +665,30 @@ internal sealed class McpAssemblyService : IAssemblyService
             ("align", (int)align)));
 
     public IReadOnlyList<ComponentInfo> ListComponents()
-        => _client.CallTool<List<ComponentInfo>>("ListComponents");
+        => throw new NotSupportedException("ListComponents is intentionally not exposed through the MCP test client.");
 
     public IReadOnlyList<ComponentInstanceInfo> ListComponentsRecursive()
-        => _client.CallTool<List<ComponentInstanceInfo>>("ListComponentsRecursive");
+        => throw new NotSupportedException("ListComponentsRecursive is intentionally not exposed through the MCP test client.");
 
     public AssemblyTargetResolutionResult ResolveComponentTarget(string? componentName = null, string? hierarchyPath = null, string? componentPath = null)
-        => _client.CallTool<AssemblyTargetResolutionResult>("ResolveComponentTarget", SolidWorksMcpHubTestClient.Args(
-            ("componentName", componentName),
-            ("hierarchyPath", hierarchyPath),
-            ("componentPath", componentPath)));
+        => throw new NotSupportedException("ResolveComponentTarget is intentionally not exposed through the MCP test client.");
 
     public SharedPartEditImpactResult AnalyzeSharedPartEditImpact(string? componentName = null, string? hierarchyPath = null, string? componentPath = null)
-        => _client.CallTool<SharedPartEditImpactResult>("AnalyzeSharedPartEditImpact", SolidWorksMcpHubTestClient.Args(
-            ("componentName", componentName),
-            ("hierarchyPath", hierarchyPath),
-            ("componentPath", componentPath)));
+        => throw new NotSupportedException("AnalyzeSharedPartEditImpact is intentionally not exposed through the MCP test client.");
+
+    public AssemblyFeatureTreeTraversalResult TraverseAssemblyFeatureTrees()
+        => _client.CallTool<AssemblyFeatureTreeTraversalResult>("TraverseAssemblyChildFeatureTrees");
+
+    public AssemblyFeatureSearchResult SearchAssemblyFeatureTrees(string query, bool exactNameOnly = false, int maxResults = 200)
+        => _client.CallTool<AssemblyFeatureSearchResult>("SearchAssemblyChildFeatures", SolidWorksMcpHubTestClient.Args(
+            ("query", query),
+            ("exactNameOnly", exactNameOnly),
+            ("maxResults", maxResults)));
+
+    public OpenComponentForEditingResult OpenComponentForEditing(string componentPath, string? hierarchyPath = null)
+        => _client.CallTool<OpenComponentForEditingResult>("OpenAssemblyChildComponentForEditing", SolidWorksMcpHubTestClient.Args(
+            ("componentPath", componentPath),
+            ("hierarchyPath", hierarchyPath)));
 
     public AssemblyInterferenceCheckResult CheckInterference(IReadOnlyList<string>? hierarchyPaths = null, bool treatCoincidenceAsInterference = false)
         => _client.CallTool<AssemblyInterferenceCheckResult>("CheckInterference", SolidWorksMcpHubTestClient.Args(

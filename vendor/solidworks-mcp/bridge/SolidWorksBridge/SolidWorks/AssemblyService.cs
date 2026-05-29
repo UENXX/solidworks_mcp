@@ -53,6 +53,60 @@ public record AssemblyComponentReplacementResult(
     bool ReattachMates,
     bool Success);
 
+public record AssemblyFeatureTreeNodeInfo(
+    int NodeIndex,
+    int Depth,
+    string Text,
+    int ObjectType,
+    string? ObjectKind,
+    bool IsRoot,
+    bool IsExpanded,
+    string GraphPath,
+    string? ParentGraphPath,
+    string? FeatureName,
+    string? FeatureTypeName,
+    bool IsSketch,
+    string? ComponentName,
+    string? ComponentPath,
+    string? HierarchyPath,
+    string? DocumentTitle,
+    string? DocumentPath);
+
+public record AssemblyFeatureTreeTraversalResult(
+    string AssemblyTitle,
+    string? AssemblyPath,
+    int NodeCount,
+    IReadOnlyList<AssemblyFeatureTreeNodeInfo> Nodes);
+
+public record AssemblyFeatureSearchMatchInfo(
+    int Rank,
+    int Score,
+    string Query,
+    string MatchedText,
+    string? FeatureName,
+    string? FeatureTypeName,
+    string GraphPath,
+    string? ComponentName,
+    string? ComponentPath,
+    string? HierarchyPath,
+    string? DocumentTitle,
+    string? DocumentPath,
+    bool RequiresOpenForEdit);
+
+public record AssemblyFeatureSearchResult(
+    string Query,
+    bool ExactNameOnly,
+    int MatchCount,
+    IReadOnlyList<AssemblyFeatureSearchMatchInfo> Matches);
+
+public record OpenComponentForEditingResult(
+    bool Opened,
+    string ComponentName,
+    string ComponentPath,
+    string? HierarchyPath,
+    string Message,
+    SwDocumentInfo? OpenedDocument);
+
 public record MateOperationResult(string MateType, int ErrorStatus, string ErrorName, string ErrorDescription);
 
 /// <summary>
@@ -159,6 +213,23 @@ public interface IAssemblyService
         bool replaceAllInstances = false,
         int useConfigChoice = (int)swReplaceComponentsConfiguration_e.swReplaceComponentsConfiguration_MatchName,
         bool reattachMates = true);
+
+    /// <summary>
+    /// Traverse the active assembly's FeatureManager tree exactly as shown in the UI, including nested component
+    /// and subassembly nodes, without opening each child document.
+    /// </summary>
+    AssemblyFeatureTreeTraversalResult TraverseAssemblyFeatureTrees();
+
+    /// <summary>
+    /// Search the active assembly's visible FeatureManager tree and return candidate feature/component matches
+    /// with enough context for the user to confirm the correct child document before editing.
+    /// </summary>
+    AssemblyFeatureSearchResult SearchAssemblyFeatureTrees(string query, bool exactNameOnly = false, int maxResults = 200);
+
+    /// <summary>
+    /// Open one confirmed component source document for editing by exact source path.
+    /// </summary>
+    OpenComponentForEditingResult OpenComponentForEditing(string componentPath, string? hierarchyPath = null);
 
 }
 
@@ -642,9 +713,766 @@ public class AssemblyService : IAssemblyService
         }
     }
 
+    public AssemblyFeatureTreeTraversalResult TraverseAssemblyFeatureTrees()
+    {
+        _cm.EnsureConnected();
+        var assemblyDoc = GetAssemblyDoc();
+        var modelDoc = (IModelDoc2)assemblyDoc;
+        var featureManager = _cm.SwApp?.FeatureManager
+            ?? throw new InvalidOperationException("FeatureManager is not available for the active assembly.");
+        var root = GetFeatureTreeRootItem(featureManager)
+            ?? throw new InvalidOperationException("Could not access the active assembly FeatureManager tree root.");
+
+        var nodes = new List<AssemblyFeatureTreeNodeInfo>();
+        TraverseAssemblyTreeNode(
+            node: root,
+            depth: 0,
+            parentGraphPath: null,
+            activeAssembly: modelDoc,
+            inheritedComponentName: null,
+            inheritedComponentPath: null,
+            inheritedHierarchyPath: null,
+            nodes: nodes);
+
+        return new AssemblyFeatureTreeTraversalResult(
+            AssemblyTitle: SafeGetDocumentTitle(modelDoc) ?? "<untitled>",
+            AssemblyPath: NormalizeCriteria(SafeGetDocumentPath(modelDoc)),
+            NodeCount: nodes.Count,
+            Nodes: nodes.AsReadOnly());
+    }
+
+    public AssemblyFeatureSearchResult SearchAssemblyFeatureTrees(string query, bool exactNameOnly = false, int maxResults = 200)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            throw new ArgumentException("query must not be empty.", nameof(query));
+        }
+
+        if (maxResults < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maxResults), maxResults, "maxResults must be at least 1.");
+        }
+
+        string normalizedQuery = query.Trim();
+        string loweredQuery = normalizedQuery.ToLowerInvariant();
+        var tree = TraverseAssemblyFeatureTrees();
+
+        var matches = tree.Nodes
+            .Select(node => new
+            {
+                Node = node,
+                Score = ScoreAssemblyTreeNode(node, normalizedQuery, loweredQuery, exactNameOnly)
+            })
+            .Where(item => item.Score > 0)
+            .OrderByDescending(item => item.Score)
+            .ThenBy(item => item.Node.Depth)
+            .ThenBy(item => item.Node.NodeIndex)
+            .Take(maxResults)
+            .Select((item, index) => new AssemblyFeatureSearchMatchInfo(
+                Rank: index,
+                Score: item.Score,
+                Query: normalizedQuery,
+                MatchedText: item.Node.Text,
+                FeatureName: item.Node.FeatureName,
+                FeatureTypeName: item.Node.FeatureTypeName,
+                GraphPath: item.Node.GraphPath,
+                ComponentName: item.Node.ComponentName,
+                ComponentPath: item.Node.ComponentPath,
+                HierarchyPath: item.Node.HierarchyPath,
+                DocumentTitle: item.Node.DocumentTitle,
+                DocumentPath: item.Node.DocumentPath,
+                RequiresOpenForEdit: !string.IsNullOrWhiteSpace(item.Node.ComponentPath)))
+            .ToList()
+            .AsReadOnly();
+
+        return new AssemblyFeatureSearchResult(
+            Query: normalizedQuery,
+            ExactNameOnly: exactNameOnly,
+            MatchCount: matches.Count,
+            Matches: matches);
+    }
+
+    public OpenComponentForEditingResult OpenComponentForEditing(string componentPath, string? hierarchyPath = null)
+    {
+        string normalizedComponentPath = NormalizeCriteria(componentPath)
+            ?? throw new ArgumentException("componentPath must not be empty.", nameof(componentPath));
+
+        _cm.EnsureConnected();
+        var assy = GetAssemblyDoc();
+        var instances = EnumerateComponentInstances(assy);
+        var matches = instances
+            .Where(instance =>
+                string.Equals(instance.Info.Path, normalizedComponentPath, StringComparison.OrdinalIgnoreCase)
+                && (hierarchyPath == null || string.Equals(instance.Info.HierarchyPath, hierarchyPath, StringComparison.OrdinalIgnoreCase)))
+            .Select(instance => instance.Info)
+            .ToList();
+
+        if (matches.Count == 0)
+        {
+            throw new InvalidOperationException(
+                $"Component path '{normalizedComponentPath}' is not present in the active assembly" +
+                (string.IsNullOrWhiteSpace(hierarchyPath) ? "." : $" at hierarchy path '{hierarchyPath}'."));
+        }
+
+        if (matches.Count > 1)
+        {
+            throw new InvalidOperationException(
+                $"Component path '{normalizedComponentPath}' maps to multiple assembly instances. Provide the confirmed hierarchyPath to disambiguate.");
+        }
+
+        var target = matches[0];
+        var opened = _cm.SwApp!.ActivateDoc(target.Path);
+        return new OpenComponentForEditingResult(
+            Opened: true,
+            ComponentName: target.Name,
+            ComponentPath: target.Path,
+            HierarchyPath: target.HierarchyPath,
+            Message: $"Opened component '{target.Name}' for editing after assembly-side confirmation.",
+            OpenedDocument: opened);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────
 
     private sealed record ComponentInstance(IComponent2 Component, ComponentInstanceInfo Info);
+
+    private static ITreeControlItem? GetFeatureTreeRootItem(IFeatureManager featureManager)
+    {
+        try
+        {
+            return featureManager.GetFeatureTreeRootItem2((int)swFeatMgrPane_e.swFeatMgrPaneBottom) as ITreeControlItem
+                ?? featureManager.GetFeatureTreeRootItem2((int)swFeatMgrPane_e.swFeatMgrPaneTop) as ITreeControlItem
+                ?? featureManager.GetFeatureTreeRootItem() as ITreeControlItem;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static void TraverseAssemblyTreeNode(
+        ITreeControlItem node,
+        int depth,
+        string? parentGraphPath,
+        IModelDoc2 activeAssembly,
+        string? inheritedComponentName,
+        string? inheritedComponentPath,
+        string? inheritedHierarchyPath,
+        ICollection<AssemblyFeatureTreeNodeInfo> nodes)
+    {
+        int siblingIndex = 0;
+        for (var current = node; current != null; current = SafeGetNextTreeNode(current))
+        {
+            int nodeIndex = nodes.Count;
+            string text = SafeGetTreeNodeText(current) ?? $"TreeNode{nodeIndex}";
+            string graphPath = BuildTreeGraphPath(parentGraphPath, siblingIndex, text);
+            object? treeObject = SafeGetTreeNodeObject(current);
+            string? componentName = inheritedComponentName;
+            string? componentPath = inheritedComponentPath;
+            string? hierarchyPath = inheritedHierarchyPath;
+            string? featureName = null;
+            string? featureTypeName = null;
+            bool isSketch = false;
+            string? documentTitle = SafeGetDocumentTitle(activeAssembly);
+            string? documentPath = NormalizeCriteria(SafeGetDocumentPath(activeAssembly));
+
+            if (treeObject is IComponent2 component)
+            {
+                componentName = component.Name2;
+                componentPath = NormalizeCriteria(component.GetPathName());
+                hierarchyPath = BuildHierarchyPath(inheritedHierarchyPath, componentName);
+
+                var componentDocument = SafeGetComponentModelDoc(component);
+                documentTitle = componentDocument == null ? componentName : SafeGetDocumentTitle(componentDocument);
+                documentPath = componentDocument == null ? componentPath : NormalizeCriteria(SafeGetDocumentPath(componentDocument));
+            }
+            else if (treeObject is Feature feature)
+            {
+                featureName = SafeGetFeatureName(feature);
+                featureTypeName = SafeGetFeatureTypeName(feature);
+                isSketch = IsSketchLike(featureTypeName);
+            }
+            else if (treeObject is IModelDoc2 modelDoc)
+            {
+                documentTitle = SafeGetDocumentTitle(modelDoc);
+                documentPath = NormalizeCriteria(SafeGetDocumentPath(modelDoc));
+            }
+
+            nodes.Add(new AssemblyFeatureTreeNodeInfo(
+                NodeIndex: nodeIndex,
+                Depth: depth,
+                Text: text,
+                ObjectType: SafeGetTreeNodeObjectType(current),
+                ObjectKind: DescribeTreeNodeObject(treeObject),
+                IsRoot: SafeIsTreeRoot(current),
+                IsExpanded: SafeIsTreeExpanded(current),
+                GraphPath: graphPath,
+                ParentGraphPath: parentGraphPath,
+                FeatureName: featureName,
+                FeatureTypeName: featureTypeName,
+                IsSketch: isSketch,
+                ComponentName: componentName,
+                ComponentPath: componentPath,
+                HierarchyPath: hierarchyPath,
+                DocumentTitle: documentTitle,
+                DocumentPath: documentPath));
+
+            var child = SafeGetFirstTreeChild(current);
+            bool loadedComponentContentsAdded = false;
+            if (treeObject is IComponent2 componentForContent)
+            {
+                loadedComponentContentsAdded = AppendLoadedComponentContents(
+                    componentForContent,
+                    depth + 1,
+                    graphPath,
+                    hierarchyPath,
+                    nodes);
+            }
+
+            if (!loadedComponentContentsAdded && child != null)
+            {
+                TraverseAssemblyTreeNode(
+                    child,
+                    depth + 1,
+                    graphPath,
+                    activeAssembly,
+                    componentName,
+                    componentPath,
+                    hierarchyPath,
+                    nodes);
+            }
+
+            siblingIndex++;
+        }
+    }
+
+    private static bool AppendLoadedComponentContents(
+        IComponent2 component,
+        int depth,
+        string parentGraphPath,
+        string? hierarchyPath,
+        ICollection<AssemblyFeatureTreeNodeInfo> nodes)
+    {
+        bool addedAny = false;
+        int siblingIndex = 0;
+        var componentDoc = SafeGetComponentModelDoc(component);
+        string? componentName = component.Name2;
+        string? componentPath = NormalizeCriteria(component.GetPathName());
+        string? documentTitle = componentDoc == null ? componentName : SafeGetDocumentTitle(componentDoc);
+        string? documentPath = componentDoc == null ? componentPath : NormalizeCriteria(SafeGetDocumentPath(componentDoc));
+
+        if (componentDoc != null)
+        {
+            var firstFeature = SafeGetFirstFeature(componentDoc);
+            if (firstFeature != null)
+            {
+                addedAny = true;
+                siblingIndex = TraverseTopLevelFeatureChain(
+                    firstFeature,
+                    depth,
+                    parentGraphPath,
+                    siblingIndex,
+                    componentName,
+                    componentPath,
+                    hierarchyPath,
+                    documentTitle,
+                    documentPath,
+                    nodes);
+            }
+        }
+
+        foreach (var child in SafeGetComponentChildren(component).OfType<IComponent2>())
+        {
+            addedAny = true;
+            AddLoadedComponentNode(
+                child,
+                depth,
+                parentGraphPath,
+                hierarchyPath,
+                siblingIndex++,
+                nodes);
+        }
+
+        return addedAny;
+    }
+
+    private static void AddLoadedComponentNode(
+        IComponent2 component,
+        int depth,
+        string parentGraphPath,
+        string? parentHierarchyPath,
+        int siblingIndex,
+        ICollection<AssemblyFeatureTreeNodeInfo> nodes)
+    {
+        int nodeIndex = nodes.Count;
+        string componentName = component.Name2 ?? $"Component{nodeIndex}";
+        string? componentPath = NormalizeCriteria(component.GetPathName());
+        string hierarchyPath = BuildHierarchyPath(parentHierarchyPath, componentName) ?? componentName;
+        string graphPath = BuildTreeGraphPath(parentGraphPath, siblingIndex, componentName);
+        var componentDoc = SafeGetComponentModelDoc(component);
+        string? documentTitle = componentDoc == null ? componentName : SafeGetDocumentTitle(componentDoc);
+        string? documentPath = componentDoc == null ? componentPath : NormalizeCriteria(SafeGetDocumentPath(componentDoc));
+
+        nodes.Add(new AssemblyFeatureTreeNodeInfo(
+            NodeIndex: nodeIndex,
+            Depth: depth,
+            Text: componentName,
+            ObjectType: 0,
+            ObjectKind: "component",
+            IsRoot: false,
+            IsExpanded: true,
+            GraphPath: graphPath,
+            ParentGraphPath: parentGraphPath,
+            FeatureName: null,
+            FeatureTypeName: null,
+            IsSketch: false,
+            ComponentName: componentName,
+            ComponentPath: componentPath,
+            HierarchyPath: hierarchyPath,
+            DocumentTitle: documentTitle,
+            DocumentPath: documentPath));
+
+        AppendLoadedComponentContents(
+            component,
+            depth + 1,
+            graphPath,
+            hierarchyPath,
+            nodes);
+    }
+
+    private static int TraverseTopLevelFeatureChain(
+        Feature firstFeature,
+        int depth,
+        string parentGraphPath,
+        int startSiblingIndex,
+        string? componentName,
+        string? componentPath,
+        string? hierarchyPath,
+        string? documentTitle,
+        string? documentPath,
+        ICollection<AssemblyFeatureTreeNodeInfo> nodes)
+    {
+        int siblingIndex = startSiblingIndex;
+        var visited = new HashSet<Feature>();
+        for (var feature = firstFeature; feature != null && visited.Add(feature); feature = SafeGetNextFeature(feature))
+        {
+            AddLoadedFeatureNode(
+                feature,
+                depth,
+                parentGraphPath,
+                siblingIndex++,
+                componentName,
+                componentPath,
+                hierarchyPath,
+                documentTitle,
+                documentPath,
+                nodes);
+        }
+
+        return siblingIndex;
+    }
+
+    private static int TraverseSubFeatureChain(
+        Feature firstFeature,
+        int depth,
+        string parentGraphPath,
+        int startSiblingIndex,
+        string? componentName,
+        string? componentPath,
+        string? hierarchyPath,
+        string? documentTitle,
+        string? documentPath,
+        ICollection<AssemblyFeatureTreeNodeInfo> nodes)
+    {
+        int siblingIndex = startSiblingIndex;
+        var visited = new HashSet<Feature>();
+        for (var feature = firstFeature; feature != null && visited.Add(feature); feature = SafeGetNextSubFeature(feature))
+        {
+            AddLoadedFeatureNode(
+                feature,
+                depth,
+                parentGraphPath,
+                siblingIndex++,
+                componentName,
+                componentPath,
+                hierarchyPath,
+                documentTitle,
+                documentPath,
+                nodes);
+        }
+
+        return siblingIndex;
+    }
+
+    private static void AddLoadedFeatureNode(
+        Feature feature,
+        int depth,
+        string parentGraphPath,
+        int siblingIndex,
+        string? componentName,
+        string? componentPath,
+        string? hierarchyPath,
+        string? documentTitle,
+        string? documentPath,
+        ICollection<AssemblyFeatureTreeNodeInfo> nodes)
+    {
+        int nodeIndex = nodes.Count;
+        string featureName = SafeGetFeatureName(feature) ?? $"Feature{nodeIndex}";
+        string? featureTypeName = SafeGetFeatureTypeName(feature);
+        string graphPath = BuildTreeGraphPath(parentGraphPath, siblingIndex, featureName);
+
+        nodes.Add(new AssemblyFeatureTreeNodeInfo(
+            NodeIndex: nodeIndex,
+            Depth: depth,
+            Text: featureName,
+            ObjectType: 0,
+            ObjectKind: "feature",
+            IsRoot: false,
+            IsExpanded: true,
+            GraphPath: graphPath,
+            ParentGraphPath: parentGraphPath,
+            FeatureName: featureName,
+            FeatureTypeName: featureTypeName,
+            IsSketch: IsSketchLike(featureTypeName),
+            ComponentName: componentName,
+            ComponentPath: componentPath,
+            HierarchyPath: hierarchyPath,
+            DocumentTitle: documentTitle,
+            DocumentPath: documentPath));
+
+        var firstSubFeature = SafeGetFirstSubFeature(feature);
+        if (firstSubFeature != null)
+        {
+            TraverseSubFeatureChain(
+                firstSubFeature,
+                depth + 1,
+                graphPath,
+                0,
+                componentName,
+                componentPath,
+                hierarchyPath,
+                documentTitle,
+                documentPath,
+                nodes);
+        }
+    }
+
+    private static int ScoreAssemblyTreeNode(AssemblyFeatureTreeNodeInfo node, string query, string loweredQuery, bool exactNameOnly)
+    {
+        int score = 0;
+        foreach (var candidate in new[]
+                 {
+                     node.Text,
+                     node.FeatureName,
+                     node.FeatureTypeName,
+                     node.ComponentName,
+                     node.HierarchyPath,
+                     node.ComponentPath
+                 })
+        {
+            score = Math.Max(score, ScoreStringMatch(candidate, query, loweredQuery, exactNameOnly));
+        }
+
+        if (!string.IsNullOrWhiteSpace(node.ComponentPath))
+        {
+            score += 20;
+        }
+
+        if (!string.IsNullOrWhiteSpace(node.FeatureName))
+        {
+            score += 15;
+        }
+
+        return score;
+    }
+
+    private static int ScoreStringMatch(string? candidate, string query, string loweredQuery, bool exactNameOnly)
+    {
+        if (string.IsNullOrWhiteSpace(candidate))
+        {
+            return 0;
+        }
+
+        string value = candidate.Trim();
+        string loweredValue = value.ToLowerInvariant();
+
+        if (exactNameOnly)
+        {
+            return string.Equals(value, query, StringComparison.OrdinalIgnoreCase) ? 1200 : 0;
+        }
+
+        int score = 0;
+        if (string.Equals(value, query, StringComparison.OrdinalIgnoreCase))
+        {
+            score += 1200;
+        }
+        else if (loweredValue.StartsWith(loweredQuery, StringComparison.Ordinal))
+        {
+            score += 850;
+        }
+        else if (loweredValue.Contains(loweredQuery, StringComparison.Ordinal))
+        {
+            score += 650;
+        }
+
+        foreach (var token in SplitSearchTokens(loweredQuery))
+        {
+            if (loweredValue.Contains(token, StringComparison.Ordinal))
+            {
+                score += 100;
+            }
+        }
+
+        return score;
+    }
+
+    private static IEnumerable<string> SplitSearchTokens(string query)
+    {
+        return query
+            .Split([' ', '/', '\\', '-', '_', ',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static string BuildTreeGraphPath(string? parentGraphPath, int siblingIndex, string text)
+    {
+        string segment = $"{siblingIndex}:{text}";
+        return string.IsNullOrWhiteSpace(parentGraphPath)
+            ? segment
+            : $"{parentGraphPath}/{segment}";
+    }
+
+    private static string? BuildHierarchyPath(string? parentHierarchyPath, string? componentName)
+    {
+        if (string.IsNullOrWhiteSpace(componentName))
+        {
+            return parentHierarchyPath;
+        }
+
+        return string.IsNullOrWhiteSpace(parentHierarchyPath)
+            ? componentName.Trim()
+            : $"{parentHierarchyPath}/{componentName.Trim()}";
+    }
+
+    private static ITreeControlItem? SafeGetFirstTreeChild(ITreeControlItem node)
+    {
+        try
+        {
+            return node.GetFirstChild() as ITreeControlItem;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static ITreeControlItem? SafeGetNextTreeNode(ITreeControlItem node)
+    {
+        try
+        {
+            return node.GetNext() as ITreeControlItem;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? SafeGetTreeNodeText(ITreeControlItem node)
+    {
+        try
+        {
+            return node.Text;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static int SafeGetTreeNodeObjectType(ITreeControlItem node)
+    {
+        try
+        {
+            return node.ObjectType;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private static object? SafeGetTreeNodeObject(ITreeControlItem node)
+    {
+        try
+        {
+            return node.Object;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static bool SafeIsTreeExpanded(ITreeControlItem node)
+    {
+        try
+        {
+            return node.Expanded;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool SafeIsTreeRoot(ITreeControlItem node)
+    {
+        try
+        {
+            return node.IsRoot;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string? DescribeTreeNodeObject(object? treeObject)
+    {
+        return treeObject switch
+        {
+            Feature => "feature",
+            IComponent2 => "component",
+            IModelDoc2 => "document",
+            _ when treeObject == null => null,
+            _ => treeObject.GetType().Name
+        };
+    }
+
+    private static string? SafeGetFeatureName(Feature feature)
+    {
+        try
+        {
+            return feature.Name;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? SafeGetFeatureTypeName(Feature feature)
+    {
+        try
+        {
+            return feature.GetTypeName2();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static IModelDoc2? SafeGetComponentModelDoc(IComponent2 component)
+    {
+        try
+        {
+            return component.GetModelDoc2() as IModelDoc2;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static object[] SafeGetComponentChildren(IComponent2 component)
+    {
+        try
+        {
+            return component.GetChildren() as object[] ?? [];
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    private static Feature? SafeGetFirstFeature(IModelDoc2 doc)
+    {
+        try
+        {
+            return doc.FirstFeature() as Feature;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static Feature? SafeGetNextFeature(Feature feature)
+    {
+        try
+        {
+            return feature.GetNextFeature() as Feature;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static Feature? SafeGetFirstSubFeature(Feature feature)
+    {
+        try
+        {
+            return feature.GetFirstSubFeature() as Feature;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static Feature? SafeGetNextSubFeature(Feature feature)
+    {
+        try
+        {
+            return feature.GetNextSubFeature() as Feature;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static bool IsSketchLike(string? typeName)
+    {
+        return string.Equals(typeName, "ProfileFeature", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(typeName, "3DProfileFeature", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? SafeGetDocumentTitle(IModelDoc2 doc)
+    {
+        try
+        {
+            return doc.GetTitle();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? SafeGetDocumentPath(IModelDoc2 doc)
+    {
+        try
+        {
+            return doc.GetPathName();
+        }
+        catch
+        {
+            return null;
+        }
+    }
 
     private static AssemblyTargetResolutionResult ResolveComponentTargetCore(
         IReadOnlyList<ComponentInstance> instances,

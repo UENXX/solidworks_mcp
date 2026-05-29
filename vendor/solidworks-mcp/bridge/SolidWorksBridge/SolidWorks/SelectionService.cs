@@ -43,6 +43,31 @@ public record FeatureTreeItemInfo(
     bool IsSketch,
     bool HasChildren);
 
+public record FeatureManagerTreeNodeInfo(
+    int NodeIndex,
+    int Depth,
+    string Text,
+    int ObjectType,
+    string? ObjectKind,
+    bool IsRoot,
+    bool IsExpanded,
+    string? GraphPath,
+    string? ParentGraphPath,
+    string? FeatureName,
+    string? FeatureTypeName,
+    bool IsSketch,
+    string? ComponentName,
+    string? ComponentPath,
+    string? DocumentTitle,
+    string? DocumentPath);
+
+public record ActiveFeatureManagerTreeResult(
+    string DocumentTitle,
+    int DocumentType,
+    string? DocumentPath,
+    int NodeCount,
+    IReadOnlyList<FeatureManagerTreeNodeInfo> Nodes);
+
 /// <summary>
 /// Structured snapshot of one SolidWorks sensor attached to the active document.
 /// </summary>
@@ -244,6 +269,11 @@ public interface ISelectionService
     IReadOnlyList<FeatureTreeItemInfo> ListFeatureTree();
 
     /// <summary>
+    /// Traverse the active document's FeatureManager tree exactly as shown in the SolidWorks UI.
+    /// </summary>
+    ActiveFeatureManagerTreeResult TraverseActiveFeatureManagerTree();
+
+    /// <summary>
     /// Enumerate the active document's sensor features and current alert state.
     /// </summary>
     IReadOnlyList<ModelHealthSensorInfo> ListModelHealthSensors();
@@ -443,6 +473,28 @@ public class SelectionService : ISelectionService
                 node.HasChildren))
             .ToList()
             .AsReadOnly();
+    }
+
+    public ActiveFeatureManagerTreeResult TraverseActiveFeatureManagerTree()
+    {
+        _cm.EnsureConnected();
+        var doc = GetActiveModelDoc();
+        EnsureNotEditing(doc, "reading the active FeatureManager tree");
+
+        var featureManager = _cm.SwApp?.FeatureManager
+            ?? throw new InvalidOperationException("FeatureManager is not available for the active document.");
+        var root = GetFeatureTreeRootItem(featureManager)
+            ?? throw new InvalidOperationException("Could not access the active FeatureManager tree root.");
+
+        var nodes = new List<FeatureManagerTreeNodeInfo>();
+        TraverseTreeNode(root, depth: 0, parentGraphPath: null, nodes, doc);
+
+        return new ActiveFeatureManagerTreeResult(
+            DocumentTitle: SafeGetDocumentTitle(doc) ?? "<untitled>",
+            DocumentType: SafeGetDocumentType(doc),
+            DocumentPath: NormalizePathOrNull(SafeGetDocumentPath(doc)),
+            NodeCount: nodes.Count,
+            Nodes: nodes.AsReadOnly());
     }
 
     public FeatureDiagnosticsResult GetFeatureDiagnostics()
@@ -830,6 +882,225 @@ public class SelectionService : ISelectionService
 
             index++;
         }
+    }
+
+    private static ITreeControlItem? GetFeatureTreeRootItem(IFeatureManager featureManager)
+    {
+        try
+        {
+            return featureManager.GetFeatureTreeRootItem2((int)swFeatMgrPane_e.swFeatMgrPaneBottom) as ITreeControlItem
+                ?? featureManager.GetFeatureTreeRootItem2((int)swFeatMgrPane_e.swFeatMgrPaneTop) as ITreeControlItem
+                ?? featureManager.GetFeatureTreeRootItem() as ITreeControlItem;
+        }
+        catch (COMException)
+        {
+            return null;
+        }
+        catch (TargetInvocationException)
+        {
+            return null;
+        }
+    }
+
+    private static void TraverseTreeNode(
+        ITreeControlItem node,
+        int depth,
+        string? parentGraphPath,
+        ICollection<FeatureManagerTreeNodeInfo> nodes,
+        IModelDoc2 activeDocument)
+    {
+        int siblingIndex = 0;
+        for (var current = node; current != null; current = SafeGetNextTreeNode(current))
+        {
+            int nodeIndex = nodes.Count;
+            string text = SafeGetTreeNodeText(current) ?? $"TreeNode{nodeIndex}";
+            string graphPath = BuildTreeGraphPath(parentGraphPath, siblingIndex, text);
+            object? treeObject = SafeGetTreeNodeObject(current);
+            int objectType = SafeGetTreeNodeObjectType(current);
+            string? objectKind = DescribeTreeNodeObject(treeObject);
+            string? featureName = null;
+            string? featureTypeName = null;
+            bool isSketch = false;
+            string? componentName = null;
+            string? componentPath = null;
+            string? documentTitle = SafeGetDocumentTitle(activeDocument);
+            string? documentPath = NormalizePathOrNull(SafeGetDocumentPath(activeDocument));
+
+            if (treeObject is Feature feature)
+            {
+                featureName = SafeGetFeatureName(feature);
+                featureTypeName = SafeGetFeatureTypeName(feature);
+                isSketch = IsSketchLike(featureTypeName);
+            }
+            else if (treeObject is IComponent2 component)
+            {
+                componentName = SafeGetComponentName(component);
+                componentPath = NormalizePathOrNull(SafeGetComponentPath(component));
+            }
+            else if (treeObject is IModelDoc2 modelDoc)
+            {
+                documentTitle = SafeGetDocumentTitle(modelDoc);
+                documentPath = NormalizePathOrNull(SafeGetDocumentPath(modelDoc));
+            }
+
+            nodes.Add(new FeatureManagerTreeNodeInfo(
+                NodeIndex: nodeIndex,
+                Depth: depth,
+                Text: text,
+                ObjectType: objectType,
+                ObjectKind: objectKind,
+                IsRoot: SafeIsTreeRoot(current),
+                IsExpanded: SafeIsTreeExpanded(current),
+                GraphPath: graphPath,
+                ParentGraphPath: parentGraphPath,
+                FeatureName: featureName,
+                FeatureTypeName: featureTypeName,
+                IsSketch: isSketch,
+                ComponentName: componentName,
+                ComponentPath: componentPath,
+                DocumentTitle: documentTitle,
+                DocumentPath: documentPath));
+
+            var child = SafeGetFirstTreeChild(current);
+            if (child != null)
+            {
+                TraverseTreeNode(child, depth + 1, graphPath, nodes, activeDocument);
+            }
+
+            siblingIndex++;
+        }
+    }
+
+    private static string BuildTreeGraphPath(string? parentGraphPath, int siblingIndex, string text)
+    {
+        string segment = $"{siblingIndex}:{text}";
+        return string.IsNullOrWhiteSpace(parentGraphPath)
+            ? segment
+            : $"{parentGraphPath}/{segment}";
+    }
+
+    private static ITreeControlItem? SafeGetFirstTreeChild(ITreeControlItem node)
+    {
+        try
+        {
+            return node.GetFirstChild() as ITreeControlItem;
+        }
+        catch (COMException)
+        {
+            return null;
+        }
+        catch (TargetInvocationException)
+        {
+            return null;
+        }
+    }
+
+    private static ITreeControlItem? SafeGetNextTreeNode(ITreeControlItem node)
+    {
+        try
+        {
+            return node.GetNext() as ITreeControlItem;
+        }
+        catch (COMException)
+        {
+            return null;
+        }
+        catch (TargetInvocationException)
+        {
+            return null;
+        }
+    }
+
+    private static string? SafeGetTreeNodeText(ITreeControlItem node)
+    {
+        try
+        {
+            return node.Text;
+        }
+        catch (COMException)
+        {
+            return null;
+        }
+        catch (TargetInvocationException)
+        {
+            return null;
+        }
+    }
+
+    private static int SafeGetTreeNodeObjectType(ITreeControlItem node)
+    {
+        try
+        {
+            return node.ObjectType;
+        }
+        catch (COMException)
+        {
+            return 0;
+        }
+        catch (TargetInvocationException)
+        {
+            return 0;
+        }
+    }
+
+    private static object? SafeGetTreeNodeObject(ITreeControlItem node)
+    {
+        try
+        {
+            return node.Object;
+        }
+        catch (COMException)
+        {
+            return null;
+        }
+        catch (TargetInvocationException)
+        {
+            return null;
+        }
+    }
+
+    private static bool SafeIsTreeExpanded(ITreeControlItem node)
+    {
+        try
+        {
+            return node.Expanded;
+        }
+        catch (COMException)
+        {
+            return false;
+        }
+        catch (TargetInvocationException)
+        {
+            return false;
+        }
+    }
+
+    private static bool SafeIsTreeRoot(ITreeControlItem node)
+    {
+        try
+        {
+            return node.IsRoot;
+        }
+        catch (COMException)
+        {
+            return false;
+        }
+        catch (TargetInvocationException)
+        {
+            return false;
+        }
+    }
+
+    private static string? DescribeTreeNodeObject(object? treeObject)
+    {
+        return treeObject switch
+        {
+            Feature => "feature",
+            IComponent2 => "component",
+            IModelDoc2 => "document",
+            _ when treeObject == null => null,
+            _ => treeObject.GetType().Name
+        };
     }
 
     private static IEnumerable<WhatsWrongFeatureInfo> EnumerateWhatsWrongItems(IModelDoc2 doc)
@@ -1630,6 +1901,22 @@ public class SelectionService : ISelectionService
         }
     }
 
+    private static bool HasSubFeatures(Feature feature)
+    {
+        try
+        {
+            return feature.GetFirstSubFeature() is Feature;
+        }
+        catch (COMException)
+        {
+            return false;
+        }
+        catch (TargetInvocationException)
+        {
+            return false;
+        }
+    }
+
     private static bool TryDeleteFeature(IModelDoc2 doc, Feature feature)
     {
         try
@@ -1756,6 +2043,70 @@ public class SelectionService : ISelectionService
         catch (TargetInvocationException)
         {
             return null;
+        }
+    }
+
+    private static string? SafeGetDocumentPath(IModelDoc2 doc)
+    {
+        try
+        {
+            return doc.GetPathName();
+        }
+        catch (COMException)
+        {
+            return null;
+        }
+        catch (TargetInvocationException)
+        {
+            return null;
+        }
+    }
+
+    private static string? SafeGetComponentName(IComponent2 component)
+    {
+        try
+        {
+            return component.Name2;
+        }
+        catch (COMException)
+        {
+            return null;
+        }
+        catch (TargetInvocationException)
+        {
+            return null;
+        }
+    }
+
+    private static string? SafeGetComponentPath(IComponent2 component)
+    {
+        try
+        {
+            return component.GetPathName();
+        }
+        catch (COMException)
+        {
+            return null;
+        }
+        catch (TargetInvocationException)
+        {
+            return null;
+        }
+    }
+
+    private static int SafeGetDocumentType(IModelDoc2 doc)
+    {
+        try
+        {
+            return doc.GetType();
+        }
+        catch (COMException)
+        {
+            return 0;
+        }
+        catch (TargetInvocationException)
+        {
+            return 0;
         }
     }
 

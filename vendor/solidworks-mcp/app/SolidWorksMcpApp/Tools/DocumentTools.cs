@@ -118,6 +118,21 @@ public class DocumentTools(StaDispatcher sta, IDocumentService docs)
         return JsonSerializer.Serialize(result);
     }
 
+    [McpServerTool, Description("Automatically export front, back, left, right, top, and bottom SolidWorks standard views to PNG files. Use this when the model needs six orthographic screenshots to inspect current 3D geometry.")]
+    public async Task<string> ExportStandardViewPngSet(
+        [Description("Output directory where the six PNG files will be written.")] string outputDirectory,
+        [Description("File name prefix. Files are named prefix-front.png, prefix-back.png, prefix-left.png, prefix-right.png, prefix-top.png, and prefix-bottom.png.")] string fileNamePrefix = "view",
+        [Description("Image width in pixels.")] int width = 1600,
+        [Description("Image height in pixels.")] int height = 900,
+        [Description("When true, includes each PNG as base64 data in the tool result. Usually false is better to keep MCP responses small.")] bool includeBase64Data = false)
+    {
+        var result = await sta.InvokeLoggedAsync(
+            nameof(ExportStandardViewPngSet),
+            new { outputDirectory, fileNamePrefix, width, height, includeBase64Data },
+            () => docs.ExportStandardViewPngSet(outputDirectory, fileNamePrefix, width, height, includeBase64Data));
+        return JsonSerializer.Serialize(result);
+    }
+
     [McpServerTool, Description("List all currently open SolidWorks documents.")]
     public async Task<string> ListDocuments()
     {

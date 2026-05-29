@@ -1,5 +1,6 @@
 using System.Reflection;
 using SolidWorks.Interop.sldworks;
+using SolidWorks.Interop.swconst;
 
 namespace SolidWorksBridge.SolidWorks;
 
@@ -19,9 +20,113 @@ public record FeatureDimensionBindingResult(
     SelectedDimensionBindingInfo Binding,
     string MatchReason);
 
+public enum CartesianAxis
+{
+    X,
+    Y,
+    Z,
+}
+
+public record SquareTubeLengthUpdateResult(
+    string FeatureName,
+    string SketchFeatureName,
+    string SketchType,
+    CartesianAxis Axis,
+    string UnitExpression,
+    double NewLengthMeters,
+    double? PreviousLengthMeters,
+    double? UpdatedLengthMeters,
+    double SegmentLengthMeters,
+    double DirectionAlignment,
+    bool CreatedDrivingDimension,
+    string DisplayDimensionSelectionName,
+    string? DimensionToken,
+    string Message);
+
+public enum CircularReferenceDimensionKind
+{
+    Radius,
+    Diameter,
+}
+
+public enum AddDimensionKind
+{
+    Smart,
+    Distance,
+    Horizontal,
+    Vertical,
+    Radius,
+    Diameter,
+    Angle,
+}
+
+public enum AddDimensionRole
+{
+    Reference,
+    Driving,
+}
+
+public record DimensionTargetInfo(
+    SelectableEntityType EntityType,
+    int EntityIndex,
+    string? ComponentName);
+
+public record AddDimensionResult(
+    AddDimensionKind DimensionKind,
+    AddDimensionRole DimensionRole,
+    DimensionTargetInfo FirstTarget,
+    DimensionTargetInfo? SecondTarget,
+    double X,
+    double Y,
+    double Z,
+    string DisplayDimensionSelectionName,
+    string? DimensionToken,
+    double? Value,
+    string Message);
+
+public record ReferenceCircularDimensionResult(
+    CircularReferenceDimensionKind DimensionKind,
+    SelectableEntityType EntityType,
+    int EntityIndex,
+    string? ComponentName,
+    double X,
+    double Y,
+    double Z,
+    string DisplayDimensionSelectionName,
+    string? DimensionToken,
+    double? Value,
+    string Message);
+
+internal sealed record SquareTubeLengthSketchResolution(
+    Feature SketchFeature,
+    FeatureDimensionService.AxisSegmentCandidate Segment,
+    int Score,
+    string Reason);
+
 public interface IFeatureDimensionService
 {
     IReadOnlyList<FeatureDimensionCandidateInfo> ListFeatureDimensions(string featureName);
+    SquareTubeLengthUpdateResult SetSquareTubeLength(string featureName, CartesianAxis axis, string lengthExpression);
+    AddDimensionResult AddDimension(
+        AddDimensionKind dimensionKind,
+        AddDimensionRole dimensionRole,
+        SelectableEntityType firstEntityType,
+        int firstEntityIndex,
+        SelectableEntityType? secondEntityType = null,
+        int? secondEntityIndex = null,
+        string? firstComponentName = null,
+        string? secondComponentName = null,
+        double x = 0.02,
+        double y = 0.02,
+        double z = 0);
+    ReferenceCircularDimensionResult AddReferenceCircularDimension(
+        CircularReferenceDimensionKind dimensionKind,
+        SelectableEntityType entityType,
+        int entityIndex,
+        string? componentName = null,
+        double x = 0.02,
+        double y = 0.02,
+        double z = 0);
     FeatureDimensionBindingResult UpsertGlobalVariableAndBindFeatureDimensionByDescription(
         string featureName,
         string variableName,
@@ -64,6 +169,307 @@ public class FeatureDimensionService : IFeatureDimensionService
 
         return dimensions.AsReadOnly();
     }
+
+    public SquareTubeLengthUpdateResult SetSquareTubeLength(string featureName, CartesianAxis axis, string lengthExpression)
+    {
+        if (string.IsNullOrWhiteSpace(lengthExpression))
+        {
+            throw new ArgumentException("lengthExpression must not be empty.", nameof(lengthExpression));
+        }
+
+        _connectionManager.EnsureConnected();
+        var doc = _connectionManager.SwApp!.IActiveDoc2
+            ?? throw new InvalidOperationException("No active document.");
+        var feature = FindFeature(featureName);
+        var sketchResolution = ResolveSquareTubeLengthControllingSketch(feature, axis, doc)
+            ?? throw new InvalidOperationException(
+                $"Feature '{featureName}' does not expose a parent-owned 2D or 3D length-control sketch with a line segment aligned to axis {axis}.");
+        var sketchFeature = sketchResolution.SketchFeature;
+        var sketch = sketchFeature.GetSpecificFeature2() as ISketch
+            ?? throw new InvalidOperationException($"Feature '{sketchFeature.Name}' is not a sketch feature.");
+
+        double newLengthMeters = ParseLengthExpressionToMeters(lengthExpression);
+        var targetSegment = sketchResolution.Segment;
+
+        bool createdDrivingDimension = false;
+        DisplayDimension displayDimension;
+        Dimension dimension;
+
+        if (!sketchFeature.Select2(false, -1))
+        {
+            throw new InvalidOperationException($"Could not select sketch feature '{sketchFeature.Name}'.");
+        }
+
+        var sketchManager = _connectionManager.SwApp!.SketchManager
+            ?? throw new InvalidOperationException("No sketch manager is available.");
+        sketchManager.InsertSketch(true);
+
+        try
+        {
+            doc.ClearSelection2(true);
+            var selectionManager = doc.ISelectionManager
+                ?? throw new InvalidOperationException("No selection manager is available.");
+            var selectData = selectionManager.CreateSelectData()
+                ?? throw new InvalidOperationException("Could not create selection data.");
+
+            if (!targetSegment.Segment.Select4(false, selectData))
+            {
+                throw new InvalidOperationException(
+                    $"Failed to select the sketch segment aligned with axis {axis} in sketch '{sketchFeature.Name}'.");
+            }
+
+            var resolved = TryResolveExistingDisplayDimension(sketchFeature, targetSegment, axis);
+            if (resolved == null)
+            {
+                object? created = CreateDrivingDimensionForSegment(doc, targetSegment.Segment, axis, targetSegment);
+                displayDimension = created as DisplayDimension
+                    ?? throw new InvalidOperationException(
+                        $"SolidWorks did not create a driving dimension for the selected axis-{axis} sketch segment.");
+                dimension = displayDimension.GetDimension2(0)
+                    ?? throw new InvalidOperationException("The created display dimension did not resolve to a model dimension.");
+                createdDrivingDimension = true;
+            }
+            else
+            {
+                displayDimension = resolved.Value.DisplayDimension;
+                dimension = resolved.Value.Dimension;
+            }
+
+            if (dimension.DrivenState == (int)swDimensionDrivenState_e.swDimensionDriven)
+            {
+                dimension.DrivenState = (int)swDimensionDrivenState_e.swDimensionDriving;
+            }
+
+            double? previousLength = TryReadDimensionValue(dimension);
+            SetDimensionSystemValue(dimension, newLengthMeters);
+            doc.EditRebuild3();
+
+            string displaySelectionName = displayDimension.GetNameForSelection();
+            if (string.IsNullOrWhiteSpace(displaySelectionName))
+            {
+                displaySelectionName = TryReadDimensionFullName(dimension)
+                    ?? dimension.GetNameForSelection()
+                    ?? string.Empty;
+            }
+
+            string? token = TryReadDimensionFullName(dimension) ?? dimension.GetNameForSelection();
+            double? updatedLength = TryReadDimensionValue(dimension);
+
+            return new SquareTubeLengthUpdateResult(
+                feature.Name,
+                sketchFeature.Name,
+                SafeGetFeatureTypeName(sketchFeature) ?? "unknown",
+                axis,
+                lengthExpression.Trim(),
+                newLengthMeters,
+                previousLength,
+                updatedLength,
+                targetSegment.LengthMeters,
+                targetSegment.AlignmentScore,
+                createdDrivingDimension,
+                displaySelectionName.Trim(),
+                string.IsNullOrWhiteSpace(token) ? null : token.Trim(),
+                createdDrivingDimension
+                    ? $"Created a new driving dimension on sketch '{sketchFeature.Name}' and updated the square-tube length."
+                    : $"Updated the existing driving dimension on sketch '{sketchFeature.Name}'.");
+        }
+        finally
+        {
+            doc.ClearSelection2(true);
+            sketchManager.InsertSketch(true);
+        }
+    }
+
+    public ReferenceCircularDimensionResult AddReferenceCircularDimension(
+        CircularReferenceDimensionKind dimensionKind,
+        SelectableEntityType entityType,
+        int entityIndex,
+        string? componentName = null,
+        double x = 0.02,
+        double y = 0.02,
+        double z = 0)
+    {
+        var result = AddDimension(
+            dimensionKind == CircularReferenceDimensionKind.Diameter
+                ? AddDimensionKind.Diameter
+                : AddDimensionKind.Radius,
+            AddDimensionRole.Reference,
+            entityType,
+            entityIndex,
+            firstComponentName: componentName,
+            x: x,
+            y: y,
+            z: z);
+
+        return new ReferenceCircularDimensionResult(
+            dimensionKind,
+            result.FirstTarget.EntityType,
+            result.FirstTarget.EntityIndex,
+            result.FirstTarget.ComponentName,
+            result.X,
+            result.Y,
+            result.Z,
+            result.DisplayDimensionSelectionName,
+            result.DimensionToken,
+            result.Value,
+            result.Message);
+    }
+
+    public AddDimensionResult AddDimension(
+        AddDimensionKind dimensionKind,
+        AddDimensionRole dimensionRole,
+        SelectableEntityType firstEntityType,
+        int firstEntityIndex,
+        SelectableEntityType? secondEntityType = null,
+        int? secondEntityIndex = null,
+        string? firstComponentName = null,
+        string? secondComponentName = null,
+        double x = 0.02,
+        double y = 0.02,
+        double z = 0)
+    {
+        if (dimensionRole == AddDimensionRole.Driving)
+        {
+            throw new InvalidOperationException(
+                "AddDimension currently creates SolidWorks reference/display dimensions on selected topology. Use sketch dimension tools or EnsureFeatureDimensionAndBindGlobalVariable for driving dimensions.");
+        }
+
+        _connectionManager.EnsureConnected();
+        var doc = _connectionManager.SwApp!.IActiveDoc2
+            ?? throw new InvalidOperationException("No active document.");
+        var selectionManager = doc.ISelectionManager
+            ?? throw new InvalidOperationException("No selection manager is available.");
+
+        var first = ResolveTopologyEntity(doc, firstEntityType, firstEntityIndex, firstComponentName);
+        TopologyEntityCandidate? second = null;
+        if (secondEntityType.HasValue || secondEntityIndex.HasValue)
+        {
+            if (!secondEntityType.HasValue || !secondEntityIndex.HasValue)
+            {
+                throw new ArgumentException("Both secondEntityType and secondEntityIndex are required when adding a two-target dimension.");
+            }
+
+            second = ResolveTopologyEntity(doc, secondEntityType.Value, secondEntityIndex.Value, secondComponentName);
+        }
+
+        var resolvedKind = ResolveDimensionKind(dimensionKind, first, second);
+        ValidateDimensionTargets(resolvedKind, first, second);
+
+        doc.ClearSelection2(true);
+        try
+        {
+            var selectData = selectionManager.CreateSelectData()
+                ?? throw new InvalidOperationException("Could not create selection data.");
+
+            if (!first.Entity.Select4(false, selectData))
+            {
+                throw new InvalidOperationException($"Failed to select {firstEntityType} at index {firstEntityIndex}.");
+            }
+
+            if (second != null && !second.Entity.Select4(true, selectData))
+            {
+                throw new InvalidOperationException($"Failed to select {second.EntityType} at index {second.Index}.");
+            }
+
+            object? rawDimension = CreateDimension(doc, resolvedKind, x, y, z);
+
+            var displayDimension = rawDimension as DisplayDimension
+                ?? throw new InvalidOperationException(
+                    $"SolidWorks did not create a {resolvedKind.ToString().ToLowerInvariant()} dimension from the selected entities.");
+
+            var dimension = displayDimension.GetDimension2(0);
+            string displaySelectionName = displayDimension.GetNameForSelection();
+            if (string.IsNullOrWhiteSpace(displaySelectionName))
+            {
+                displaySelectionName = TryReadDimensionFullName(dimension)
+                    ?? dimension?.GetNameForSelection()
+                    ?? string.Empty;
+            }
+
+            string? token = dimension == null
+                ? null
+                : TryReadDimensionFullName(dimension) ?? dimension.GetNameForSelection();
+
+            return new AddDimensionResult(
+                resolvedKind,
+                dimensionRole,
+                ToDimensionTargetInfo(first),
+                second == null ? null : ToDimensionTargetInfo(second),
+                x,
+                y,
+                z,
+                displaySelectionName.Trim(),
+                string.IsNullOrWhiteSpace(token) ? null : token.Trim(),
+                dimension == null ? null : TryReadDimensionValue(dimension),
+                $"Added {dimensionRole.ToString().ToLowerInvariant()} {resolvedKind.ToString().ToLowerInvariant()} dimension.");
+        }
+        finally
+        {
+            doc.ClearSelection2(true);
+        }
+    }
+
+    private static AddDimensionKind ResolveDimensionKind(
+        AddDimensionKind dimensionKind,
+        TopologyEntityCandidate first,
+        TopologyEntityCandidate? second)
+    {
+        if (dimensionKind != AddDimensionKind.Smart)
+        {
+            return dimensionKind;
+        }
+
+        return second == null && first.EntityType == SelectableEntityType.Face
+            ? AddDimensionKind.Radius
+            : AddDimensionKind.Distance;
+    }
+
+    private static void ValidateDimensionTargets(
+        AddDimensionKind dimensionKind,
+        TopologyEntityCandidate first,
+        TopologyEntityCandidate? second)
+    {
+        if (dimensionKind is AddDimensionKind.Radius or AddDimensionKind.Diameter)
+        {
+            if (second != null)
+            {
+                throw new ArgumentException($"{dimensionKind} dimensions require exactly one target.");
+            }
+
+            if (first.EntityType != SelectableEntityType.Face && first.EntityType != SelectableEntityType.Edge)
+            {
+                throw new ArgumentException($"{dimensionKind} dimensions require a circular/cylindrical face or circular edge target.");
+            }
+
+            return;
+        }
+
+        if (dimensionKind == AddDimensionKind.Angle && second == null)
+        {
+            throw new ArgumentException("Angle dimensions require two edge or line-like targets.");
+        }
+
+        if (dimensionKind is AddDimensionKind.Distance or AddDimensionKind.Horizontal or AddDimensionKind.Vertical or AddDimensionKind.Angle)
+        {
+            return;
+        }
+
+        throw new ArgumentOutOfRangeException(nameof(dimensionKind), dimensionKind, "Unsupported dimension kind.");
+    }
+
+    private static object? CreateDimension(IModelDoc2 doc, AddDimensionKind dimensionKind, double x, double y, double z)
+        => dimensionKind switch
+        {
+            AddDimensionKind.Radius => doc.AddRadialDimension2(x, y, z),
+            AddDimensionKind.Diameter => doc.AddDiameterDimension2(x, y, z),
+            AddDimensionKind.Horizontal => doc.AddHorizontalDimension2(x, y, z),
+            AddDimensionKind.Vertical => doc.AddVerticalDimension2(x, y, z),
+            AddDimensionKind.Distance or AddDimensionKind.Angle => doc.AddDimension2(x, y, z),
+            _ => throw new ArgumentOutOfRangeException(nameof(dimensionKind), dimensionKind, "Unsupported dimension kind.")
+        };
+
+    private static DimensionTargetInfo ToDimensionTargetInfo(TopologyEntityCandidate candidate)
+        => new(candidate.EntityType, candidate.Index, candidate.ComponentName);
 
     public FeatureDimensionBindingResult UpsertGlobalVariableAndBindFeatureDimensionByDescription(
         string featureName,
@@ -143,6 +549,123 @@ public class FeatureDimensionService : IFeatureDimensionService
         }
 
         throw new InvalidOperationException($"Feature '{featureName}' was not found in the active document.");
+    }
+
+    private static TopologyEntityCandidate ResolveTopologyEntity(
+        IModelDoc2 doc,
+        SelectableEntityType entityType,
+        int index,
+        string? componentName)
+    {
+        var candidate = EnumerateTopologyEntities(doc, entityType, componentName)
+            .FirstOrDefault(item => item.Index == index);
+
+        if (candidate == null)
+        {
+            string scope = string.IsNullOrWhiteSpace(componentName)
+                ? string.Empty
+                : $" for component '{componentName}'";
+            throw new InvalidOperationException($"Could not find {entityType} at index {index}{scope}.");
+        }
+
+        return candidate;
+    }
+
+    private sealed record TopologyEntityCandidate(
+        int Index,
+        IEntity Entity,
+        SelectableEntityType EntityType,
+        string? ComponentName);
+
+    private static IEnumerable<TopologyEntityCandidate> EnumerateTopologyEntities(
+        IModelDoc2 doc,
+        SelectableEntityType entityType,
+        string? componentName)
+    {
+        var all = EnumerateBodyContexts(doc)
+            .SelectMany(context => EnumerateTopologyEntitiesForBody(context.Body, context.ComponentName))
+            .Where(candidate => candidate.EntityType == entityType)
+            .Where(candidate => string.IsNullOrWhiteSpace(componentName)
+                || string.Equals(candidate.ComponentName, componentName, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        for (int index = 0; index < all.Count; index++)
+        {
+            yield return all[index] with { Index = index };
+        }
+    }
+
+    private static IEnumerable<(IBody2 Body, string? ComponentName)> EnumerateBodyContexts(IModelDoc2 doc)
+    {
+        if (doc is IPartDoc part)
+        {
+            foreach (var body in GetBodies(part))
+            {
+                yield return (body, null);
+            }
+
+            yield break;
+        }
+
+        if (doc is IAssemblyDoc assembly)
+        {
+            var components = (object[]?)assembly.GetComponents(true) ?? Array.Empty<object>();
+            foreach (var component in EnumerateAssemblyComponentsRecursive(components.OfType<IComponent2>()))
+            {
+                foreach (var body in GetBodies(component))
+                {
+                    yield return (body, component.Name2);
+                }
+            }
+
+            yield break;
+        }
+
+        throw new InvalidOperationException("Topology selection is only supported for part and assembly documents.");
+    }
+
+    private static IEnumerable<TopologyEntityCandidate> EnumerateTopologyEntitiesForBody(IBody2 body, string? componentName)
+    {
+        foreach (var face in ((object[]?)body.GetFaces() ?? Array.Empty<object>()).OfType<IFace2>())
+        {
+            yield return new TopologyEntityCandidate(-1, (IEntity)face, SelectableEntityType.Face, componentName);
+        }
+
+        foreach (var edge in ((object[]?)body.GetEdges() ?? Array.Empty<object>()).OfType<IEdge>())
+        {
+            yield return new TopologyEntityCandidate(-1, (IEntity)edge, SelectableEntityType.Edge, componentName);
+        }
+
+        foreach (var vertex in ((object[]?)body.GetVertices() ?? Array.Empty<object>()).OfType<IVertex>())
+        {
+            yield return new TopologyEntityCandidate(-1, (IEntity)vertex, SelectableEntityType.Vertex, componentName);
+        }
+    }
+
+    private static IEnumerable<IComponent2> EnumerateAssemblyComponentsRecursive(IEnumerable<IComponent2> components)
+    {
+        foreach (var component in components)
+        {
+            yield return component;
+
+            var children = (object[]?)component.GetChildren() ?? Array.Empty<object>();
+            foreach (var child in EnumerateAssemblyComponentsRecursive(children.OfType<IComponent2>()))
+            {
+                yield return child;
+            }
+        }
+    }
+
+    private static IEnumerable<IBody2> GetBodies(IPartDoc part)
+    {
+        return ((object[]?)part.GetBodies2((int)swBodyType_e.swSolidBody, true) ?? Array.Empty<object>())
+            .OfType<IBody2>();
+    }
+
+    private static IEnumerable<IBody2> GetBodies(IComponent2 component)
+    {
+        return (component.GetBodies3((int)swBodyType_e.swSolidBody, out _) as object[] ?? Array.Empty<object>())
+            .OfType<IBody2>();
     }
 
     private static IEnumerable<(string DimensionToken, string DisplayDimensionSelectionName, string? FullName, double? Value)>
@@ -445,11 +968,350 @@ public class FeatureDimensionService : IFeatureDimensionService
         return null;
     }
 
+    private static Feature? ResolveSquareTubeLengthControllingSketchFeature(Feature feature)
+        => ResolveSquareTubeLengthControllingSketch(feature, CartesianAxis.X, doc: null)?.SketchFeature
+            ?? ResolveSquareTubeLengthControllingSketchByNameOnly(feature);
+
+    private static Feature? ResolveSquareTubeLengthControllingSketchByNameOnly(Feature feature)
+    {
+        var parentFeatures = ResolveSquareTubeParentFeatureCandidates(feature);
+        var directOwnerSketch = ResolveOwningSketchFeature(feature);
+        string? directOwnerSketchName = directOwnerSketch == null ? null : SafeGetFeatureName(directOwnerSketch);
+
+        return parentFeatures
+            .SelectMany(EnumerateFeatureTree)
+            .Where(IsSketchFeature)
+            .Where(candidate => !string.Equals(SafeGetFeatureName(candidate), directOwnerSketchName, StringComparison.OrdinalIgnoreCase))
+            .Select(candidate => new
+            {
+                Sketch = candidate,
+                Score = ScoreSquareTubeLengthSketchCandidate(candidate)
+            })
+            .OrderByDescending(candidate => candidate.Score)
+            .ThenBy(candidate => SafeGetFeatureName(candidate.Sketch), StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault()
+            ?.Sketch;
+    }
+
+    private static SquareTubeLengthSketchResolution? ResolveSquareTubeLengthControllingSketch(Feature feature, CartesianAxis axis, IModelDoc2? doc)
+    {
+        var parentFeatures = ResolveSquareTubeParentFeatureCandidates(feature);
+        var directOwnerSketch = ResolveOwningSketchFeature(feature);
+        string? directOwnerSketchName = directOwnerSketch == null ? null : SafeGetFeatureName(directOwnerSketch);
+        var candidates = new List<SquareTubeLengthSketchResolution>();
+
+        foreach (var parent in parentFeatures)
+        {
+            foreach (var sketchFeature in EnumerateFeatureTree(parent).Where(IsSketchFeature))
+            {
+                if (string.Equals(SafeGetFeatureName(sketchFeature), directOwnerSketchName, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (TryCreateLengthSketchResolution(sketchFeature, axis, out var resolution))
+                {
+                    candidates.Add(resolution);
+                }
+            }
+        }
+
+        if (doc != null)
+        {
+            foreach (var sketchFeature in EnumerateDocumentFeatures(doc).Where(IsSketchFeature))
+            {
+                if (string.Equals(SafeGetFeatureName(sketchFeature), directOwnerSketchName, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (TryCreateLengthSketchResolution(sketchFeature, axis, out var resolution))
+                {
+                    candidates.Add(resolution with
+                    {
+                        Score = resolution.Score - 250,
+                        Reason = resolution.Reason + " Used document-wide fallback because no parent feature candidate produced a better match."
+                    });
+                }
+            }
+        }
+
+        return candidates
+            .GroupBy(candidate => candidate.SketchFeature, ReferenceEqualityComparer.Instance)
+            .Select(group => group.OrderByDescending(candidate => candidate.Score).First())
+            .OrderByDescending(candidate => candidate.Score)
+            .ThenByDescending(candidate => candidate.Segment.LengthMeters)
+            .ThenBy(candidate => SafeGetFeatureName(candidate.SketchFeature), StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
+    }
+
+    private static bool TryCreateLengthSketchResolution(
+        Feature sketchFeature,
+        CartesianAxis axis,
+        out SquareTubeLengthSketchResolution resolution)
+    {
+        resolution = null!;
+        if (sketchFeature.GetSpecificFeature2() is not ISketch sketch)
+        {
+            return false;
+        }
+
+        var segment = TryChooseAxisAlignedSegment(sketch, axis);
+        if (segment == null)
+        {
+            return false;
+        }
+
+        int score = ScoreSquareTubeLengthSketchCandidate(sketchFeature);
+        score += ScoreLengthControlSegment(segment);
+        string reason = $"Matched sketch '{SafeGetFeatureName(sketchFeature)}' because it contains an axis-{axis} line segment and scored {score}.";
+        resolution = new SquareTubeLengthSketchResolution(sketchFeature, segment, score, reason);
+        return true;
+    }
+
+    private static Feature? ResolveParentFeature(Feature feature)
+    {
+        try
+        {
+            var owner = feature.GetOwnerFeature() as Feature;
+            if (owner != null)
+            {
+                return owner;
+            }
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            var parents = feature.GetParents() as object[] ?? Array.Empty<object>();
+            return parents.OfType<Feature>().FirstOrDefault();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static IReadOnlyList<Feature> ResolveSquareTubeParentFeatureCandidates(Feature feature)
+    {
+        var candidates = new List<Feature>();
+
+        void Add(Feature? candidate)
+        {
+            if (candidate == null)
+            {
+                return;
+            }
+
+            if (!candidates.Any(existing => ReferenceEquals(existing, candidate)))
+            {
+                candidates.Add(candidate);
+            }
+        }
+
+        var parent = ResolveParentFeature(feature);
+        Add(parent);
+
+        foreach (var candidate in SafeGetFeatureParents(feature))
+        {
+            Add(candidate);
+        }
+
+        if (parent != null)
+        {
+            foreach (var candidate in SafeGetFeatureParents(parent))
+            {
+                Add(candidate);
+            }
+        }
+
+        return candidates.AsReadOnly();
+    }
+
+    private static IEnumerable<Feature> EnumerateSubFeatures(Feature feature)
+    {
+        for (var sub = SafeGetFirstSubFeature(feature); sub != null; sub = SafeGetNextSubFeature(sub))
+        {
+            yield return sub;
+        }
+    }
+
+    private static IEnumerable<Feature> EnumerateFeatureTree(Feature root)
+    {
+        var stack = new Stack<Feature>(EnumerateSubFeatures(root).Reverse());
+        var visited = new HashSet<Feature>();
+
+        while (stack.Count > 0)
+        {
+            var current = stack.Pop();
+            if (!visited.Add(current))
+            {
+                continue;
+            }
+
+            yield return current;
+
+            foreach (var child in EnumerateSubFeatures(current).Reverse())
+            {
+                stack.Push(child);
+            }
+        }
+    }
+
+    private static IEnumerable<Feature> EnumerateDocumentFeatures(IModelDoc2 doc)
+    {
+        var visited = new HashSet<Feature>();
+        for (var feature = SafeGetFirstFeature(doc); feature != null; feature = SafeGetNextFeature(feature))
+        {
+            if (visited.Add(feature))
+            {
+                yield return feature;
+            }
+
+            foreach (var child in EnumerateFeatureTree(feature))
+            {
+                if (visited.Add(child))
+                {
+                    yield return child;
+                }
+            }
+        }
+    }
+
+    private static int ScoreLengthControlSketchCandidate(Feature sketchFeature)
+    {
+        string rawName = (SafeGetFeatureName(sketchFeature) ?? string.Empty).Trim();
+        string name = rawName.ToLowerInvariant();
+        int score = 0;
+
+        if (rawName.Contains("3D草图", StringComparison.OrdinalIgnoreCase)
+            || rawName.Contains("3D Sketch", StringComparison.OrdinalIgnoreCase)
+            || rawName.Contains("3DSketch", StringComparison.OrdinalIgnoreCase))
+        {
+            score += 600;
+        }
+
+        if (rawName.Contains("草图", StringComparison.OrdinalIgnoreCase))
+        {
+            score += 320;
+        }
+
+        if (name.Contains("length", StringComparison.Ordinal))
+        {
+            score += 500;
+        }
+
+        if (name.Contains("path", StringComparison.Ordinal))
+        {
+            score += 350;
+        }
+
+        if (name.Contains("guide", StringComparison.Ordinal))
+        {
+            score += 250;
+        }
+
+        if (name.Contains("x", StringComparison.Ordinal)
+            || name.Contains("y", StringComparison.Ordinal)
+            || name.Contains("z", StringComparison.Ordinal))
+        {
+            score += 80;
+        }
+
+        if (name.StartsWith("sketch", StringComparison.Ordinal)
+            || string.Equals(name, "sketch", StringComparison.Ordinal)
+            || name.Contains(" sketch", StringComparison.Ordinal))
+        {
+            score -= 260;
+        }
+
+        if (name.Contains("profile", StringComparison.Ordinal)
+            || name.Contains("section", StringComparison.Ordinal)
+            || name.Contains("cross", StringComparison.Ordinal))
+        {
+            score -= 400;
+        }
+
+        return score;
+    }
+
     private static bool IsSketchFeature(Feature feature)
     {
         string? typeName = SafeGetFeatureTypeName(feature);
         return string.Equals(typeName, "ProfileFeature", StringComparison.OrdinalIgnoreCase)
             || string.Equals(typeName, "3DProfileFeature", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static int ScoreSquareTubeLengthSketchCandidate(Feature sketchFeature)
+    {
+        string rawName = (SafeGetFeatureName(sketchFeature) ?? string.Empty).Trim();
+        string name = rawName.ToLowerInvariant();
+        string typeName = SafeGetFeatureTypeName(sketchFeature) ?? string.Empty;
+        int score = 0;
+
+        if (rawName.Contains("3D草图", StringComparison.OrdinalIgnoreCase)
+            || rawName.Contains("3D Sketch", StringComparison.OrdinalIgnoreCase)
+            || rawName.Contains("3DSketch", StringComparison.OrdinalIgnoreCase))
+        {
+            score += 600;
+        }
+
+        if (rawName.Contains("草图", StringComparison.OrdinalIgnoreCase))
+        {
+            score += 320;
+        }
+
+        if (string.Equals(typeName, "3DProfileFeature", StringComparison.OrdinalIgnoreCase))
+        {
+            score += 180;
+        }
+
+        if (name.Contains("length", StringComparison.Ordinal))
+        {
+            score += 500;
+        }
+
+        if (name.Contains("path", StringComparison.Ordinal))
+        {
+            score += 350;
+        }
+
+        if (name.Contains("guide", StringComparison.Ordinal))
+        {
+            score += 250;
+        }
+
+        if (name.Contains("x", StringComparison.Ordinal)
+            || name.Contains("y", StringComparison.Ordinal)
+            || name.Contains("z", StringComparison.Ordinal))
+        {
+            score += 80;
+        }
+
+        if (name.StartsWith("sketch", StringComparison.Ordinal)
+            || string.Equals(name, "sketch", StringComparison.Ordinal)
+            || name.Contains(" sketch", StringComparison.Ordinal))
+        {
+            score -= 380;
+        }
+
+        if (name.Contains("profile", StringComparison.Ordinal)
+            || name.Contains("section", StringComparison.Ordinal)
+            || name.Contains("cross", StringComparison.Ordinal))
+        {
+            score -= 400;
+        }
+
+        return score;
+    }
+
+    private static int ScoreLengthControlSegment(AxisSegmentCandidate candidate)
+    {
+        int score = (int)Math.Round(candidate.AlignmentScore * 300d);
+        score += (int)Math.Min(300d, candidate.LengthMeters * 100d);
+        return score;
     }
 
     private static object? TryCreateDimensionForSegment(IModelDoc2 doc, ISketchSegment segment, string dimensionDescription)
@@ -498,6 +1360,235 @@ public class FeatureDimensionService : IFeatureDimensionService
         }
 
         return null;
+    }
+
+    internal sealed record AxisSegmentCandidate(
+        ISketchSegment Segment,
+        ISketchLine SketchLine,
+        double LengthMeters,
+        double DeltaX,
+        double DeltaY,
+        double DeltaZ,
+        double AlignmentScore);
+
+    internal static AxisSegmentCandidate ChooseAxisAlignedSegment(ISketch sketch, CartesianAxis axis)
+    {
+        var selected = TryChooseAxisAlignedSegment(sketch, axis);
+        if (selected != null)
+        {
+            return selected;
+        }
+
+        throw new InvalidOperationException(
+            $"The sketch does not contain any line segment aligned with axis {axis}. Only straight sketch lines are supported.");
+    }
+
+    internal static AxisSegmentCandidate? TryChooseAxisAlignedSegment(ISketch sketch, CartesianAxis axis)
+    {
+        var segments = (object[]?)sketch.GetSketchSegments() ?? Array.Empty<object>();
+        var candidates = new List<AxisSegmentCandidate>();
+
+        foreach (var rawSegment in segments)
+        {
+            if (rawSegment is not ISketchLine line || rawSegment is not ISketchSegment segment)
+            {
+                continue;
+            }
+
+            var candidate = CreateAxisSegmentCandidate(segment, line, axis);
+            if (candidate != null)
+            {
+                candidates.Add(candidate);
+            }
+        }
+
+        return candidates
+            .OrderByDescending(candidate => candidate.AlignmentScore)
+            .ThenByDescending(candidate => candidate.LengthMeters)
+            .FirstOrDefault();
+    }
+
+    internal static AxisSegmentCandidate? CreateAxisSegmentCandidate(ISketchSegment segment, ISketchLine line, CartesianAxis axis)
+    {
+        try
+        {
+            var start = line.IGetStartPoint2();
+            var end = line.IGetEndPoint2();
+            if (start == null || end == null)
+            {
+                return null;
+            }
+
+            double dx = end.X - start.X;
+            double dy = end.Y - start.Y;
+            double dz = end.Z - start.Z;
+            double length = Math.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
+            if (length <= 1e-9)
+            {
+                return null;
+            }
+
+            double axisComponent = axis switch
+            {
+                CartesianAxis.X => Math.Abs(dx),
+                CartesianAxis.Y => Math.Abs(dy),
+                CartesianAxis.Z => Math.Abs(dz),
+                _ => 0d,
+            };
+
+            double alignment = axisComponent / length;
+            if (alignment < 0.95d)
+            {
+                return null;
+            }
+
+            return new AxisSegmentCandidate(segment, line, length, dx, dy, dz, alignment);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static (DisplayDimension DisplayDimension, Dimension Dimension)? TryResolveExistingDisplayDimension(
+        Feature sketchFeature,
+        AxisSegmentCandidate targetSegment,
+        CartesianAxis axis)
+    {
+        var displayDimension = sketchFeature.GetFirstDisplayDimension() as DisplayDimension;
+        while (displayDimension != null)
+        {
+            var dimension = displayDimension.GetDimension2(0);
+            if (dimension != null && IsDimensionCompatibleWithAxis(dimension, targetSegment, axis))
+            {
+                return (displayDimension, dimension);
+            }
+
+            displayDimension = displayDimension.GetNext5();
+        }
+
+        return null;
+    }
+
+    private static bool IsDimensionCompatibleWithAxis(Dimension dimension, AxisSegmentCandidate targetSegment, CartesianAxis axis)
+    {
+        try
+        {
+            var fullName = TryReadDimensionFullName(dimension)?.ToLowerInvariant() ?? string.Empty;
+            string axisToken = axis.ToString().ToLowerInvariant();
+            if (fullName.Contains(axisToken))
+            {
+                return true;
+            }
+
+            double? currentValue = TryReadDimensionValue(dimension);
+            if (!currentValue.HasValue)
+            {
+                return false;
+            }
+
+            return Math.Abs(currentValue.Value - targetSegment.LengthMeters) <= 1e-6;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static object? CreateDrivingDimensionForSegment(
+        IModelDoc2 doc,
+        ISketchSegment segment,
+        CartesianAxis axis,
+        AxisSegmentCandidate candidate)
+    {
+        return axis switch
+        {
+            CartesianAxis.X => doc.AddHorizontalDimension2(GetDimensionAnchor(candidate, axis).X, GetDimensionAnchor(candidate, axis).Y, GetDimensionAnchor(candidate, axis).Z),
+            CartesianAxis.Y => doc.AddVerticalDimension2(GetDimensionAnchor(candidate, axis).X, GetDimensionAnchor(candidate, axis).Y, GetDimensionAnchor(candidate, axis).Z),
+            CartesianAxis.Z => doc.AddDimension2(GetDimensionAnchor(candidate, axis).X, GetDimensionAnchor(candidate, axis).Y, GetDimensionAnchor(candidate, axis).Z),
+            _ => doc.AddDimension2(0.02, 0.02, 0),
+        };
+    }
+
+    private static (double X, double Y, double Z) GetDimensionAnchor(AxisSegmentCandidate candidate, CartesianAxis axis)
+    {
+        var start = candidate.SketchLine.IGetStartPoint2();
+        var end = candidate.SketchLine.IGetEndPoint2();
+        if (start == null || end == null)
+        {
+            return (0.02, 0.02, 0);
+        }
+
+        double midX = (start.X + end.X) / 2d;
+        double midY = (start.Y + end.Y) / 2d;
+        double midZ = (start.Z + end.Z) / 2d;
+        const double offset = 0.01d;
+
+        return axis switch
+        {
+            CartesianAxis.X => (midX, midY + offset, midZ),
+            CartesianAxis.Y => (midX + offset, midY, midZ),
+            CartesianAxis.Z => (midX + offset, midY + offset, midZ),
+            _ => (0.02, 0.02, 0),
+        };
+    }
+
+    private static void SetDimensionSystemValue(Dimension dimension, double systemValueMeters)
+    {
+        int status;
+        try
+        {
+            status = dimension.SetSystemValue3(
+                systemValueMeters,
+                (int)swSetValueInConfiguration_e.swSetValue_InThisConfiguration,
+                null!);
+        }
+        catch
+        {
+            status = (int)swSetValueReturnStatus_e.swSetValue_Failure;
+        }
+
+        if (status == (int)swSetValueReturnStatus_e.swSetValue_Successful)
+        {
+            return;
+        }
+
+        if (status == (int)swSetValueReturnStatus_e.swSetValue_DrivenDimension)
+        {
+            throw new InvalidOperationException("The matched sketch dimension is driven/reference-only and cannot be used to control square-tube length.");
+        }
+
+        try
+        {
+            dimension.SystemValue = systemValueMeters;
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(
+                $"Failed to set dimension value. SolidWorks status={((swSetValueReturnStatus_e)status)}.",
+                ex);
+        }
+    }
+
+    private static double ParseLengthExpressionToMeters(string value)
+    {
+        string normalized = value.Trim().ToLowerInvariant();
+        if (normalized.EndsWith("mm", StringComparison.Ordinal))
+        {
+            return double.Parse(normalized[..^2], System.Globalization.CultureInfo.InvariantCulture) / 1000d;
+        }
+
+        if (normalized.EndsWith("cm", StringComparison.Ordinal))
+        {
+            return double.Parse(normalized[..^2], System.Globalization.CultureInfo.InvariantCulture) / 100d;
+        }
+
+        if (normalized.EndsWith("m", StringComparison.Ordinal))
+        {
+            return double.Parse(normalized[..^1], System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        return double.Parse(normalized, System.Globalization.CultureInfo.InvariantCulture);
     }
 
     private static bool TryGetLineOrientation(ISketchLine line, out bool horizontal, out bool vertical)
@@ -574,6 +1665,69 @@ public class FeatureDimensionService : IFeatureDimensionService
         try
         {
             return feature.GetTypeName2();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static IReadOnlyList<Feature> SafeGetFeatureParents(Feature feature)
+    {
+        try
+        {
+            return (feature.GetParents() as object[] ?? Array.Empty<object>())
+                .OfType<Feature>()
+                .ToList()
+                .AsReadOnly();
+        }
+        catch
+        {
+            return Array.Empty<Feature>();
+        }
+    }
+
+    private static Feature? SafeGetFirstSubFeature(Feature feature)
+    {
+        try
+        {
+            return feature.GetFirstSubFeature() as Feature;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static Feature? SafeGetNextSubFeature(Feature feature)
+    {
+        try
+        {
+            return feature.GetNextSubFeature() as Feature;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static Feature? SafeGetFirstFeature(IModelDoc2 doc)
+    {
+        try
+        {
+            return doc.FirstFeature() as Feature;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static Feature? SafeGetNextFeature(Feature feature)
+    {
+        try
+        {
+            return feature.GetNextFeature() as Feature;
         }
         catch
         {

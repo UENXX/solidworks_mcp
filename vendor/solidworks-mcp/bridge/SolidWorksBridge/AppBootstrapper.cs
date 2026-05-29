@@ -435,32 +435,6 @@ public class AppBootstrapper
             return Task.FromResult<object?>(result);
         });
 
-        _messageHandler.Register("sw.assembly.list_components", _ =>
-        {
-            var list = _assemblyService.ListComponents();
-            return Task.FromResult<object?>(list);
-        });
-
-        _messageHandler.Register("sw.assembly.list_components_recursive", _ =>
-        {
-            var list = _assemblyService.ListComponentsRecursive();
-            return Task.FromResult<object?>(list);
-        });
-
-        _messageHandler.Register("sw.assembly.resolve_component_target", req =>
-        {
-            var p = req.GetParams<AssemblyResolveComponentTargetParams>() ?? new AssemblyResolveComponentTargetParams();
-            var result = _assemblyService.ResolveComponentTarget(p.ComponentName, p.HierarchyPath, p.ComponentPath);
-            return Task.FromResult<object?>(result);
-        });
-
-        _messageHandler.Register("sw.assembly.analyze_shared_part_edit_impact", req =>
-        {
-            var p = req.GetParams<AssemblyResolveComponentTargetParams>() ?? new AssemblyResolveComponentTargetParams();
-            var result = _assemblyService.AnalyzeSharedPartEditImpact(p.ComponentName, p.HierarchyPath, p.ComponentPath);
-            return Task.FromResult<object?>(result);
-        });
-
         _messageHandler.Register("sw.assembly.check_interference", req =>
         {
             var p = req.GetParams<AssemblyInterferenceParams>() ?? new AssemblyInterferenceParams();
