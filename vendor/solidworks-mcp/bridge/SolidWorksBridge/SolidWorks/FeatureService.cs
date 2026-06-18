@@ -31,6 +31,7 @@ public class FeatureService : IFeatureService
     private const string MultiRegionSelectionHint = "The sketch contains multiple closed regions. If cut creation still fails, isolate the intended profile or simplify overlapping text geometry before retrying.";
 
     private readonly ISwConnectionManager _cm;
+    private readonly IFeatureCacheManager _cache;
 
     private sealed record SketchProfileDiagnostics(
         string SketchSource,
@@ -41,9 +42,10 @@ public class FeatureService : IFeatureService
         int OpenContourCount,
         int RegionCount);
 
-    public FeatureService(ISwConnectionManager cm)
+    public FeatureService(ISwConnectionManager cm, IFeatureCacheManager cache)
     {
         _cm = cm ?? throw new ArgumentNullException(nameof(cm));
+        _cache = cache ?? throw new ArgumentNullException(nameof(cache));
     }
 
     public FeatureInfo Extrude(double depth, EndCondition endCondition = EndCondition.Blind, bool flipDirection = false)
@@ -96,6 +98,8 @@ public class FeatureService : IFeatureService
                     ["feature"] = FormatFeature(topFeatureAfter),
                 });
         }
+
+        _cache.InvalidateActiveScope(true);
 
         return new FeatureInfo(feature.Name, "Extrude");
     }
@@ -170,6 +174,8 @@ public class FeatureService : IFeatureService
                     bodyBefore,
                     bodyAfter));
 
+        _cache.InvalidateActiveScope(true);
+
         return new FeatureInfo(feature.Name, "ExtrudeCut");
     }
 
@@ -193,6 +199,8 @@ public class FeatureService : IFeatureService
             ?? throw new InvalidOperationException(
                 "Revolve failed — ensure a profile sketch and axis line are selected");
 
+        _cache.InvalidateActiveScope(true);
+
         return new FeatureInfo(feature.Name, isCut ? "RevolveCut" : "Revolve");
     }
 
@@ -213,6 +221,8 @@ public class FeatureService : IFeatureService
         var feature = doc.IFeatureByPositionReverse(0)
             ?? throw new InvalidOperationException("Fillet failed — ensure edges are selected");
 
+        _cache.InvalidateActiveScope(true);
+
         return new FeatureInfo(feature.Name, "Fillet");
     }
 
@@ -223,6 +233,8 @@ public class FeatureService : IFeatureService
 
         var feature = fm.InsertFeatureChamfer(0, 0, distance, Math.PI / 4, 0, 0, 0, 0)
             ?? throw new InvalidOperationException("Chamfer failed — ensure edges are selected");
+
+        _cache.InvalidateActiveScope(true);
 
         return new FeatureInfo(feature.Name, "Chamfer");
     }
@@ -236,6 +248,8 @@ public class FeatureService : IFeatureService
         var feature = doc.IFeatureByPositionReverse(0)
             ?? throw new InvalidOperationException(
                 "Shell failed — ensure open faces are selected");
+
+        _cache.InvalidateActiveScope(true);
 
         return new FeatureInfo(feature.Name, "Shell");
     }

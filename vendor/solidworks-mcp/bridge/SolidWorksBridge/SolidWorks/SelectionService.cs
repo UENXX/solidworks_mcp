@@ -863,24 +863,42 @@ public class SelectionService : ISelectionService
         }
     }
 
-    private static IEnumerable<FeatureNode> EnumerateFeatureTree(IModelDoc2 doc)
+    private static IEnumerable<FeatureNode> EnumerateFeatureTree(IModelDoc2 doc, bool includeSubFeatures = true)
     {
-        int index = 0;
+        int[] indexBox = new[] { 0 };
         for (var feature = doc.FirstFeature() as Feature; feature != null; feature = feature.GetNextFeature() as Feature)
         {
-            string typeName = SafeGetFeatureTypeName(feature) ?? "Unknown";
-            string name = SafeGetFeatureName(feature)
-                ?? $"Feature{index + 1}";
+            foreach (var node in EnumerateFeatureAndSubFeatures(feature, indexBox, includeSubFeatures))
+            {
+                yield return node;
+            }
+        }
+    }
 
-            yield return new FeatureNode(
-                feature,
-                index,
-                name,
-                typeName,
-                IsSketchLike(typeName),
-                HasChildFeatures(feature));
+    private static IEnumerable<FeatureNode> EnumerateFeatureAndSubFeatures(Feature feature, int[] indexBox, bool includeSubFeatures)
+    {
+        string typeName = SafeGetFeatureTypeName(feature) ?? "Unknown";
+        string name = SafeGetFeatureName(feature) ?? $"Feature{indexBox[0] + 1}";
 
-            index++;
+        yield return new FeatureNode(
+            feature,
+            indexBox[0]++,
+            name,
+            typeName,
+            IsSketchLike(typeName),
+            HasChildFeatures(feature));
+
+        if (includeSubFeatures)
+        {
+            var subFeature = feature.GetFirstSubFeature() as Feature;
+            while (subFeature != null)
+            {
+                foreach (var subNode in EnumerateFeatureAndSubFeatures(subFeature, indexBox, true))
+                {
+                    yield return subNode;
+                }
+                subFeature = subFeature.GetNextSubFeature() as Feature;
+            }
         }
     }
 
@@ -2098,7 +2116,8 @@ public class SelectionService : ISelectionService
     {
         try
         {
-            return doc.GetType();
+            // Use dynamic to resolve the COM GetType() method, not the C# Object.GetType()
+            return ((dynamic)doc).GetType();
         }
         catch (COMException)
         {

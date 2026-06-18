@@ -45,10 +45,12 @@ public interface IEquationService
 public class EquationService : IEquationService
 {
     private readonly ISwConnectionManager _connectionManager;
+    private readonly IFeatureCacheManager _cacheManager;
 
-    public EquationService(ISwConnectionManager connectionManager)
+    public EquationService(ISwConnectionManager connectionManager, IFeatureCacheManager cacheManager)
     {
         _connectionManager = connectionManager ?? throw new ArgumentNullException(nameof(connectionManager));
+        _cacheManager = cacheManager ?? throw new ArgumentNullException(nameof(cacheManager));
     }
 
     public GlobalVariableInfo UpsertGlobalVariable(string name, string expression, bool solve = true)
@@ -86,6 +88,7 @@ public class EquationService : IEquationService
         }
 
         doc.EditRebuild3();
+        _cacheManager.InvalidateActiveScope(true);
 
         return new GlobalVariableInfo(
             normalizedName,
@@ -147,6 +150,7 @@ public class EquationService : IEquationService
         }
 
         doc.EditRebuild3();
+        _cacheManager.InvalidateActiveScope(true);
 
         return new SelectedDimensionBindingInfo(
             normalizedName,

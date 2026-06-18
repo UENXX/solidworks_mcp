@@ -35,5 +35,4 @@ public class AssemblyTools(StaDispatcher sta, IAssemblyService assembly)
         var result = await sta.InvokeLoggedAsync(nameof(OpenAssemblyChildComponentForEditing), payload, () => assembly.OpenComponentForEditing(componentPath, hierarchyPath));
         return JsonSerializer.Serialize(result);
     }
-
 }

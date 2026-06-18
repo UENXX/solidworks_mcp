@@ -145,17 +145,28 @@ public interface IFeatureDimensionService
         string expression,
         string dimensionDescription,
         bool solve = true);
+    DimensionUpdateResult SetDimensionValue(string featureName, string dimensionToken, double value, string unit);
+    FeatureParametersResult GetFeatureParameters(string featureName);
+    IdentifyDimensionByTypeResult IdentifyDimensionByType(string featureName, string dimensionType);
+    DimensionUpdateResult EditAssemblyChildDimension(string componentName, string dimensionToken, double value, string unit = "mm");
 }
+
+public record DimensionUpdateResult(bool Success, string? Error = null, string? DimensionToken = null, double? AppliedSystemValue = null, string? Context = null);
+public record FeatureParameterInfo(string Token, string Name, double CurrentSystemValue, string Type);
+public record FeatureParametersResult(bool Success, string? Error = null, string? Feature = null, IReadOnlyList<FeatureParameterInfo>? Parameters = null);
+public record IdentifyDimensionByTypeResult(bool Success, string? Error = null, string? DimensionToken = null, string? Type = null);
 
 public class FeatureDimensionService : IFeatureDimensionService
 {
     private readonly ISwConnectionManager _connectionManager;
     private readonly IEquationService _equations;
+    private readonly IFeatureCacheManager _cacheManager;
 
-    public FeatureDimensionService(ISwConnectionManager connectionManager, IEquationService equations)
+    public FeatureDimensionService(ISwConnectionManager connectionManager, IEquationService equations, IFeatureCacheManager cacheManager)
     {
         _connectionManager = connectionManager ?? throw new ArgumentNullException(nameof(connectionManager));
         _equations = equations ?? throw new ArgumentNullException(nameof(equations));
+        _cacheManager = cacheManager ?? throw new ArgumentNullException(nameof(cacheManager));
     }
 
     public IReadOnlyList<FeatureDimensionCandidateInfo> ListFeatureDimensions(string featureName)
@@ -285,6 +296,7 @@ public class FeatureDimensionService : IFeatureDimensionService
             double? previousLength = TryReadDimensionValue(dimension);
             SetDimensionSystemValue(dimension, newLengthMeters);
             doc.EditRebuild3();
+            _cacheManager.InvalidateActiveScope(true);
 
             string displaySelectionName = displayDimension.GetNameForSelection();
             if (string.IsNullOrWhiteSpace(displaySelectionName))
@@ -956,6 +968,11 @@ public class FeatureDimensionService : IFeatureDimensionService
             {
                 score += 12;
             }
+
+            if (candidate.FeatureName.ToLowerInvariant().Contains("line"))
+            {
+                score += 10; // A dimension on a feature with "Line" in its name is likely a length.
+            }
         }
 
         if (description.Contains("width") || description.Contains("horizontal") || description.Contains("宽") || description.Contains("水平"))
@@ -963,6 +980,11 @@ public class FeatureDimensionService : IFeatureDimensionService
             if (label.Contains("width") || label.Contains("horizontal"))
             {
                 score += 12;
+            }
+
+            if (candidate.FeatureName.ToLowerInvariant().Contains("line"))
+            {
+                score += 10; // A dimension on a feature with "Line" in its name is likely a length.
             }
         }
 
@@ -2093,5 +2115,151 @@ public class FeatureDimensionService : IFeatureDimensionService
         {
             return null;
         }
+    }
+
+    public DimensionUpdateResult SetDimensionValue(string featureName, string dimensionToken, double value, string unit)
+    {
+        _connectionManager.EnsureConnected();
+        if (_connectionManager.SwApp!.IActiveDoc2 is not IModelDoc2 swModel)
+            return new DimensionUpdateResult(false, "No active document found.");
+
+        double convertedValue = ConvertToSystemUnits(value, unit);
+
+        if (swModel.Parameter(dimensionToken) is not Dimension swDim)
+            return new DimensionUpdateResult(false, $"Dimension token '{dimensionToken}' not found.");
+
+        int status = swDim.SetSystemValue3(convertedValue, 2, null);
+        swModel.ForceRebuild3(true);
+        // Re-read value after rebuild to ensure it's not stale
+        double? appliedValue = TryReadDimensionValue(swDim);
+
+        _cacheManager.InvalidateActiveScope(true);
+
+        return new DimensionUpdateResult(
+            status == 0 || status == 1,
+            DimensionToken: dimensionToken,
+            AppliedSystemValue: appliedValue
+        );
+    }
+
+    public FeatureParametersResult GetFeatureParameters(string featureName)
+    {
+        _connectionManager.EnsureConnected();
+        if (_connectionManager.SwApp!.IActiveDoc2 is not IModelDoc2 swModel)
+            return new FeatureParametersResult(false, "No active document.");
+
+        Feature? swFeat = null;
+        // Robustly find the feature by name by iterating, rather than relying on FeatureByName
+        for (var feature = swModel.FirstFeature() as Feature; feature != null; feature = feature.GetNextFeature() as Feature)
+        {
+            string? name = SafeGetFeatureName(feature);
+            if (string.Equals(name, featureName.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                swFeat = feature;
+                break;
+            }
+        }
+        if (swFeat == null)
+            return new FeatureParametersResult(false, $"Feature '{featureName}' not found.");
+
+        var parameters = new List<FeatureParameterInfo>();
+        DisplayDimension? swDispDim = swFeat.GetFirstDisplayDimension() as DisplayDimension;
+
+        while (swDispDim != null)
+        {
+            Dimension? swDim = swDispDim.GetDimension2(0);
+            if (swDim != null)
+            {
+                var type = (swDimensionType_e)swDispDim.Type;
+                string typeStr = type switch
+                {
+                    swDimensionType_e.swLinearDimension => "length",
+                    swDimensionType_e.swAngularDimension => "angle",
+                    swDimensionType_e.swRadialDimension => "radius",
+                    swDimensionType_e.swDiameterDimension => "diameter",
+                    _ => "unknown"
+                };
+
+                string token = TryReadDimensionFullName(swDim) ?? $"{swDim.Name}@{featureName}";
+                string name = swDim.Name;
+                double currentSystemValue = swDim.SystemValue; // This should be current
+
+                parameters.Add(new FeatureParameterInfo(token, name, currentSystemValue, typeStr));
+            }
+            swDispDim = swFeat.GetNextDisplayDimension(swDispDim) as DisplayDimension;
+        }
+
+        return new FeatureParametersResult(true, Feature: featureName, Parameters: parameters.AsReadOnly());
+    }
+
+    public IdentifyDimensionByTypeResult IdentifyDimensionByType(string featureName, string dimensionType)
+    {
+        FeatureParametersResult inspectionResult = GetFeatureParameters(featureName);
+
+        if (!inspectionResult.Success || inspectionResult.Parameters == null)
+        {
+            return new IdentifyDimensionByTypeResult(false, inspectionResult.Error);
+        }
+
+        foreach (FeatureParameterInfo param in inspectionResult.Parameters)
+        {
+            if (param.Type.Equals(dimensionType, StringComparison.OrdinalIgnoreCase))
+            {
+                return new IdentifyDimensionByTypeResult(true, DimensionToken: param.Token, Type: param.Type);
+            }
+        }
+
+        return new IdentifyDimensionByTypeResult(false, $"No dimension of type '{dimensionType}' found in feature '{featureName}'.");
+    }
+
+    public DimensionUpdateResult EditAssemblyChildDimension(string componentName, string dimensionToken, double value, string unit = "mm")
+    {
+        _connectionManager.EnsureConnected();
+        if (_connectionManager.SwApp!.IActiveDoc2 is not IAssemblyDoc swAssy)
+            return new DimensionUpdateResult(false, "Active document must be an assembly.");
+
+        IModelDoc2 swModel = (IModelDoc2)swAssy;
+
+        if (swAssy.GetComponentByName(componentName) is not IComponent2 swComp)
+            return new DimensionUpdateResult(false, $"Component '{componentName}' not found in active assembly.");
+
+        if (swComp.GetModelDoc2() is not IModelDoc2 swChildModel)
+            return new DimensionUpdateResult(false, "Child component model could not be resolved in memory.");
+
+        // It's safer to attempt to get the parameter again from the child model's parameter collection
+        // after ensuring it's resolved.
+        var swDim = swChildModel.Parameter(dimensionToken) as Dimension;
+        if (swDim == null)
+            return new DimensionUpdateResult(false, $"Dimension '{dimensionToken}' not located in child model context.");
+
+        double convertedValue = ConvertToSystemUnits(value, unit);
+        int status = swDim.SetSystemValue3(convertedValue, 2, null);
+
+        swChildModel.ForceRebuild3(true);
+        swModel.ForceRebuild3(true); // Rebuild the parent assembly too, to propagate changes
+        // Re-read value after rebuild to ensure it's not stale
+        double? appliedValue = TryReadDimensionValue(swDim);
+
+        _cacheManager.InvalidateActiveScope(true);
+
+        return new DimensionUpdateResult(
+            status == 0 || status == 1,
+            DimensionToken: dimensionToken,
+            AppliedSystemValue: appliedValue,
+            Context: "assembly_child_edit"
+        );
+    }
+
+    private static double ConvertToSystemUnits(double value, string unit)
+    {
+        return unit.ToLower() switch
+        {
+            "mm" or "millimeter" or "millimeters" => value / 1000.0,
+            "cm" or "centimeter" or "centimeters" => value / 100.0,
+            "m" or "meter" or "meters" => value,
+            "in" or "inch" or "inches" => value * 0.0254,
+            "deg" or "degree" or "degrees" => value * (Math.PI / 180.0),
+            _ => value / 1000.0
+        };
     }
 }

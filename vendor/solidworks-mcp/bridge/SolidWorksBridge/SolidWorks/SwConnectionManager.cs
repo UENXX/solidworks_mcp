@@ -651,7 +651,8 @@ public class SldWorksAppWrapper : ISldWorksApp
     // ── Helpers ───────────────────────────────────────────────────
 
     private static SwDocumentInfo ToInfo(IModelDoc2 doc) =>
-        new(doc.GetPathName(), doc.GetTitle(), doc.GetType());
+        // Use dynamic to resolve the COM GetType() method, not the C# Object.GetType()
+        new(doc.GetPathName(), doc.GetTitle(), ((dynamic)doc).GetType());
 
     private static SolidWorksApiException SolidWorksApiExceptionFromLoad(string path, int docType, SwApiDiagnostics diagnostics)
     {
