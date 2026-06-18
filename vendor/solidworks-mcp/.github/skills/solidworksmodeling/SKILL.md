@@ -17,7 +17,6 @@ Use this skill when the task involves editing a SolidWorks part or assembly thro
 - Before any sketch-based operation, clear the current selection, select a real planar face on the target solid, and only then start the sketch.
 - Do not create sketches in free space when the intent is to modify model geometry. Face-hosted sketches are materially more stable.
 - When reasoning about SolidWorks APIs, prefer official API names and official preconditions. Do not invent wrapper-style method names and then reason from those invented semantics.
-- **Use the working context for scoped edits.** Before editing a feature or dimension within a sub-assembly, first navigate into that component's scope using `sw.context.update_working_context(component_name)`. This provides a fast, cached view of its features, dimensions, and children. Use `sw.context.get_current_working_context()` to see where you are.
 - Before reading the FeatureManager tree or deleting features or loose sketches, call `GetEditState` first. If `IsEditing` is true, finish the active sketch before `ListFeatureTree`, `DeleteFeatureByName`, or `DeleteUnusedSketches`.
 - If a face-based cut or boss fails, verify the feature direction. A top-face relief cut often needs the direction flipped so the feature goes into the body.
 - In localized SolidWorks environments, do not rely on English plane labels. Prefer semantic plane resolution or topology-driven selection.
@@ -41,18 +40,15 @@ Use this skill when the task involves editing a SolidWorks part or assembly thro
 2. If connection behavior looks suspicious, validate `get_active_document`, `list_documents`, and `list_components` before attempting geometry edits.
 3. Find the interfering components and use `ListComponentsRecursive` to resolve the concrete part file that should be edited.
 4.  Use the returned hierarchy paths to confirm the exact component name, nesting, and path instead of assuming the target is top-level.
-5.  **Default to the Working Context for all edits.** Call `sw.context.update_working_context(component_name)` to set the scope for your edits. This is the fastest and most reliable way to work with sub-components.
-6.  Use the information from the working context (`list_feature_dimensions`, etc.) to identify the dimension to change.
-7.  Modify the dimension using a tool like `set_feature_dimension_value` or `upsert_global_variable_and_bind_feature_dimension_by_description`. These tools operate within the active context.
-8.  **Do NOT open the component in a new window** (`open_assembly_child_component_for_editing`) unless you need to perform complex geometric modeling (e.g., creating new sketches from scratch). For parameter and dimension changes, stay within the context.
-9.  If that part file is reused in multiple placements, count the affected instances from the recursive list first and tell the user the downstream impact of changing the shared part.
-10. Decide whether the fix should modify shared geometry or replace only one instance with a separate file.
-11. If you must create new geometry, *then* you can open the part, select a face, create the sketch, and apply the feature.
-12. After any geometry modification, immediately export and inspect front, top, and right views of the changed part. Add an isometric export whenever the result is not obvious from three views alone.
-13. If the geometry still looks questionable, show those views to the user and get confirmation before making another high-risk edit.
-14. If you were in a sketch, finish it before any later tree read or cleanup step.
-15. Save the edited part or subassembly.
-16. Reopen or reactivate the parent assembly and run a directed interference check on the original target pair before concluding the issue is fixed.
+5.  To edit a dimension in a sub-component, use `edit_assembly_child_dimension`.
+6.  If that part file is reused in multiple placements, count the affected instances from the recursive list first and tell the user the downstream impact of changing the shared part.
+7.  Decide whether the fix should modify shared geometry or replace only one instance with a separate file.
+8.  If you must create new geometry, open the part (`open_assembly_child_component_for_editing`), select a face, create the sketch, and apply the feature.
+9. After any geometry modification, immediately export and inspect front, top, and right views of the changed part. Add an isometric export whenever the result is not obvious from three views alone.
+10. If the geometry still looks questionable, show those views to the user and get confirmation before making another high-risk edit.
+11. If you were in a sketch, finish it before any later tree read or cleanup step.
+12. Save the edited part or subassembly.
+13. Reopen or reactivate the parent assembly and run a directed interference check on the original target pair before concluding the issue is fixed.
 
 ## Face-Outline Projection Cuts
 

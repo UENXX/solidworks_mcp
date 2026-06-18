@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
@@ -145,9 +145,6 @@ internal static class Program
 
         sc.AddSingleton<StaDispatcher>();
 
-        // Feature cache manager - shared singleton for localized context caching
-        sc.AddSingleton<IFeatureCacheManager, FeatureCacheManager>();
-
         sc.AddSingleton<ISwConnectionManager>(sp =>
         {
             var sta = sp.GetRequiredService<StaDispatcher>();
@@ -203,7 +200,6 @@ internal static class Program
         builder.Services.AddSingleton(sharedSvc.GetRequiredService<IPointCloudExportService>());
         builder.Services.AddSingleton(sharedSvc.GetRequiredService<IFeatureDimensionService>());
         builder.Services.AddSingleton(sharedSvc.GetRequiredService<IWorkflowService>());
-        builder.Services.AddSingleton(sharedSvc.GetRequiredService<IFeatureCacheManager>());
 
         builder.Services.AddTransient<SolidWorksMcpApp.Tools.ConnectionTools>();
         builder.Services.AddTransient<SolidWorksMcpApp.Tools.DocumentTools>();
@@ -214,8 +210,6 @@ internal static class Program
         builder.Services.AddTransient<SolidWorksMcpApp.Tools.EquationTools>();
         builder.Services.AddTransient<SolidWorksMcpApp.Tools.FeatureDimensionTools>();
         builder.Services.AddTransient<SolidWorksMcpApp.Tools.GeometryTools>();
-        builder.Services.AddTransient<SolidWorksMcpApp.Tools.KnowledgeTools>();
-        builder.Services.AddTransient<SolidWorksMcpApp.Tools.ContextManagementTools>();
 
         builder.Services
             .AddMcpServer()

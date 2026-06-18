@@ -7,9 +7,9 @@ using System.Threading.Tasks;
 namespace SolidWorksMcpApp.Tools;
 
 [McpServerToolType]
-public class FeatureDimensionTools(StaDispatcher sta, IFeatureDimensionService featureDimensions, IFeatureCacheManager cacheManager)
+public class FeatureDimensionTools(StaDispatcher sta, IFeatureDimensionService featureDimensions)
 {
-    [McpServerTool, Description("Directly sets a dimension value using its exact token (e.g., 'D7@Edge Line - Flange 1'). Units default to mm. Automatically invalidates cache after change.")]
+    [McpServerTool, Description("Directly sets a dimension value using its exact token (e.g., 'D7@Edge Line - Flange 1'). Units default to mm.")]
     public async Task<string> SetFeatureDimensionValue(
         [Description("The name of the feature to update")] string featureName,
         [Description("The exact dimension token")] string dimensionToken,
@@ -21,8 +21,6 @@ public class FeatureDimensionTools(StaDispatcher sta, IFeatureDimensionService f
             () =>
             {
                 var modificationResult = featureDimensions.SetDimensionValue(featureName, dimensionToken, value, unit);
-                // Invalidate cache after successful modification
-                cacheManager.InvalidateActiveScope(invalidateParents: true);
                 return modificationResult;
             });
         return JsonSerializer.Serialize(result);
@@ -49,7 +47,7 @@ public class FeatureDimensionTools(StaDispatcher sta, IFeatureDimensionService f
         return JsonSerializer.Serialize(result);
     }
 
-    [McpServerTool, Description("Edits a dimension inside a child part or subassembly directly from the root assembly context. Automatically invalidates cache after change.")]
+    [McpServerTool, Description("Edits a dimension inside a child part or subassembly directly from the root assembly context.")]
     public async Task<string> EditAssemblyChildDimension(
         [Description("The instance name of the child component in the assembly")] string componentName,
         [Description("The name of the feature inside the child component")] string featureName,
@@ -61,9 +59,6 @@ public class FeatureDimensionTools(StaDispatcher sta, IFeatureDimensionService f
             () =>
             {
                 var modificationResult = featureDimensions.EditAssemblyChildDimension(componentName, featureName, dimensionToken, value);
-                // Invalidate cache for the modified component and parents
-                cacheManager.InvalidateScope(componentName);
-                cacheManager.InvalidateActiveScope(invalidateParents: true);
                 return modificationResult;
             });
         return JsonSerializer.Serialize(result);
