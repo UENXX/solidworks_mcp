@@ -77,6 +77,9 @@ public interface ISldWorksApp
     /// <summary>Activate an open document by file path.</summary>
     SwDocumentInfo ActivateDoc(string path);
 
+    /// <summary>Activate an open document by its SolidWorks window title.</summary>
+    SwDocumentInfo ActivateDocByTitle(string title);
+
     /// <summary>Close a document by file path.</summary>
     void CloseDoc(string path);
 
@@ -433,6 +436,28 @@ public class SldWorksAppWrapper : ISldWorksApp
         if (doc == null)
         {
             throw new InvalidOperationException($"Failed to activate document '{normalizedPath}'. SolidWorks error code: {errors}.");
+        }
+
+        return ToInfo((IModelDoc2)doc);
+    }
+
+    public SwDocumentInfo ActivateDocByTitle(string title)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            throw new ArgumentException("title must not be empty.", nameof(title));
+        }
+
+        int errors = 0;
+        var doc = _swApp.ActivateDoc3(
+            title,
+            true,
+            (int)swRebuildOnActivation_e.swDontRebuildActiveDoc,
+            ref errors);
+
+        if (doc == null)
+        {
+            throw new InvalidOperationException($"Failed to activate document '{title}'. SolidWorks error code: {errors}.");
         }
 
         return ToInfo((IModelDoc2)doc);

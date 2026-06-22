@@ -282,11 +282,32 @@ public class AssemblyService : IAssemblyService
 
         _cm.EnsureConnected();
         var assy = GetAssemblyDoc();
+        var assyDoc = (IModelDoc2)assy;
+        var assyPath = assyDoc.GetPathName();
+        var assyTitle = assyDoc.GetTitle();
 
         // For a saved standalone part, let SolidWorks resolve the model's active/default
         // configuration instead of forcing an existing selected config in the target assembly.
-        var comp = assy.AddComponent5(filePath, 0, "", false, "", x, y, z) as IComponent2
-            ?? throw new InvalidOperationException($"Failed to insert component: {filePath}");
+        var comp = assy.AddComponent5(filePath, 0, "", false, "", x, y, z) as IComponent2;
+        if (comp == null)
+        {
+            var swApp = _cm.SwApp ?? throw new InvalidOperationException("SolidWorks not connected");
+            swApp.OpenDoc(filePath);
+            if (!string.IsNullOrWhiteSpace(assyPath))
+            {
+                swApp.ActivateDoc(assyPath);
+            }
+            else if (!string.IsNullOrWhiteSpace(assyTitle))
+            {
+                swApp.ActivateDocByTitle(assyTitle);
+            }
+            comp = assy.AddComponent5(filePath, 0, "", false, "", x, y, z) as IComponent2;
+        }
+
+        if (comp == null)
+        {
+            throw new InvalidOperationException($"Failed to insert component: {filePath}");
+        }
 
         return new ComponentInfo(comp.Name2, comp.GetPathName());
     }

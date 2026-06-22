@@ -12,7 +12,15 @@ RUNNER = ROOT / "apps" / "demo-backend" / "tools" / "McpToolRunner" / "bin" / "R
 
 
 def call_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    payload = json.dumps({"tools": tools}, ensure_ascii=True)
+    payload = json.dumps(
+        {
+            "serverCommand": "SolidWorksMcpApp.exe",
+            "serverArguments": ["--proxy", "--client", "FaceMappingRecordProbe"],
+            "workingDirectory": str(ROOT / "artifacts" / "solidworks-mcp"),
+            "tools": tools,
+        },
+        ensure_ascii=True,
+    )
     completed = subprocess.run(
         ["dotnet", str(RUNNER)],
         cwd=ROOT,
