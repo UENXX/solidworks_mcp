@@ -49,9 +49,12 @@ public class SelectionTools(StaDispatcher sta, ISelectionService selection)
     [McpServerTool, Description("Select an entity in SolidWorks by name and selection type string. For datum planes, prefer 'PLANE'; common SolidWorks enum names like 'swSelDATUMPLANES' are also accepted and retried with compatible aliases.")]
     public async Task<string> SelectByName(
         [Description("Name of the entity to select")] string name,
-        [Description("SolidWorks selection type string, e.g. 'swSelDATUMPLANES', 'swSelFACES'")] string selType)
+        [Description("SolidWorks selection type string, e.g. 'swSelDATUMPLANES', 'swSelFACES'")] string selType,
+        [Description("Append to current selection instead of replacing it.")] bool append = false,
+        [Description("SolidWorks selection mark.")] int mark = 0)
     {
-        var result = await sta.InvokeLoggedAsync(nameof(SelectByName), new { name, selType }, () => selection.SelectByName(name, selType));
+        var result = await sta.InvokeLoggedAsync(nameof(SelectByName), new { name, selType, append, mark },
+            () => selection.SelectByName(name, selType, append, mark));
         return JsonSerializer.Serialize(result);
     }
 
@@ -103,6 +106,38 @@ public class SelectionTools(StaDispatcher sta, ISelectionService selection)
                 var type = ToolArgumentParsing.ParseSelectableEntityType(entityType, nameof(entityType));
                 return selection.SelectEntity(type, index, append, mark, componentName);
             });
+        return JsonSerializer.Serialize(result);
+    }
+
+    [McpServerTool, Description("Record the currently-selected face in SolidWorks into the persistent face mapping file under a human-readable name. The face position is stored in component-local coordinates, so the entry remains valid after move/rotate/mate operations.")]
+    public async Task<string> RecordFaceMapping(
+        [Description("Human-readable name for this face, e.g. '底面' or 'top_face'")] string faceName,
+        [Description("Component instance name the face belongs to, e.g. 'Part1-1'")] string componentName)
+    {
+        var result = await sta.InvokeLoggedAsync(nameof(RecordFaceMapping), new { faceName, componentName },
+            () => selection.RecordFaceMapping(faceName, componentName));
+        return JsonSerializer.Serialize(result);
+    }
+
+    [McpServerTool, Description("Select a face that was previously recorded with record_face_mapping, by its human-readable name. Matching uses component-local coordinates and is stable across move/rotate/mate operations.")]
+    public async Task<string> SelectFaceByName(
+        [Description("Human-readable name of the face, e.g. '底面'")] string faceName,
+        [Description("Component instance name, e.g. 'Part1-1'")] string componentName,
+        [Description("Append to current selection instead of replacing it")] bool append = false,
+        [Description("Selection mark value (default 0)")] int mark = 0)
+    {
+        var result = await sta.InvokeLoggedAsync(nameof(SelectFaceByName), new { faceName, componentName, append, mark },
+            () => selection.SelectFaceByName(faceName, componentName, append, mark));
+        return JsonSerializer.Serialize(result);
+    }
+
+    [McpServerTool, Description("Return the mapping-style geometry fingerprint for the currently selected face without writing face_mappings.json. Use this to verify record/select accuracy.")]
+    public async Task<string> GetSelectedFaceMappingProbe(
+        [Description("Optional human-readable face name used only in the returned metadata.")] string? faceName = null,
+        [Description("Optional component instance name used only in the returned metadata.")] string? componentName = null)
+    {
+        var result = await sta.InvokeLoggedAsync(nameof(GetSelectedFaceMappingProbe), new { faceName, componentName },
+            () => selection.GetSelectedFaceMappingProbe(faceName, componentName));
         return JsonSerializer.Serialize(result);
     }
 

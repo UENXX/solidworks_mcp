@@ -77,6 +77,9 @@ public interface ISldWorksApp
     /// <summary>Activate an open document by file path.</summary>
     SwDocumentInfo ActivateDoc(string path);
 
+    /// <summary>Activate an open document by its SolidWorks window title.</summary>
+    SwDocumentInfo ActivateDocByTitle(string title);
+
     /// <summary>Close a document by file path.</summary>
     void CloseDoc(string path);
 
@@ -116,6 +119,9 @@ public interface ISldWorksApp
     /// </summary>
     IModelDoc2? IActiveDoc2 { get; }
 
+    /// <summary>Return the SolidWorks math utility object for transform operations.</summary>
+    IMathUtility GetMathUtility();
+
     /// <summary>
     /// Return the ISketchManager of the active document, or null if no document is open.
     /// Used by SketchService for a cleanly mockable access path.
@@ -127,6 +133,7 @@ public interface ISldWorksApp
     /// Used by FeatureService for a cleanly mockable access path.
     /// </summary>
     IFeatureManager? FeatureManager { get; }
+
 }
 
 /// <summary>
@@ -434,6 +441,28 @@ public class SldWorksAppWrapper : ISldWorksApp
         return ToInfo((IModelDoc2)doc);
     }
 
+    public SwDocumentInfo ActivateDocByTitle(string title)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            throw new ArgumentException("title must not be empty.", nameof(title));
+        }
+
+        int errors = 0;
+        var doc = _swApp.ActivateDoc3(
+            title,
+            true,
+            (int)swRebuildOnActivation_e.swDontRebuildActiveDoc,
+            ref errors);
+
+        if (doc == null)
+        {
+            throw new InvalidOperationException($"Failed to activate document '{title}'. SolidWorks error code: {errors}.");
+        }
+
+        return ToInfo((IModelDoc2)doc);
+    }
+
     public void CloseDoc(string path) => _swApp.CloseDoc(path);
 
     public SwSaveResult SaveDoc(string path)
@@ -625,6 +654,9 @@ public class SldWorksAppWrapper : ISldWorksApp
     }
 
     public IModelDoc2? IActiveDoc2 => _swApp.IActiveDoc2;
+
+    public IMathUtility GetMathUtility() =>
+        (IMathUtility)(_swApp.GetMathUtility() ?? throw new InvalidOperationException("SolidWorks did not return a math utility object."));
 
     public ISketchManager? SketchManager =>
         _swApp.IActiveDoc2?.SketchManager as ISketchManager;
