@@ -39,6 +39,19 @@ public class FeatureDimensionTools(StaDispatcher sta, IFeatureDimensionService f
         return JsonSerializer.Serialize(result);
     }
 
+    [McpServerTool, Description("Set an existing SolidWorks driving dimension to an exact value by dimension token/name, for example D7@边线-法兰1. Use this after SearchStructuralFeatureTargets and ListFeatureDimensions identify the dimension that should be changed. Values are interpreted as meters when unitless; explicit units such as 100mm, 12cm, or 0.1m are supported.")]
+    public async Task<string> SetDimensionValueByName(
+        [Description("Exact dimension token/name to update, such as D7@边线-法兰1, D1@Sketch1, FullName, or DisplayDimensionSelectionName returned by ListFeatureDimensions.")] string dimensionName,
+        [Description("Target dimension value. Supports values like 100mm, 12cm, 0.1m, or a bare meter value such as 0.1.")] string valueExpression,
+        [Description("When true, rebuilds the active SolidWorks document after changing the dimension.")] bool rebuild = true)
+    {
+        var result = await sta.InvokeLoggedAsync(
+            nameof(SetDimensionValueByName),
+            new { dimensionName, valueExpression, rebuild },
+            () => featureDimensions.SetDimensionValueByName(dimensionName, valueExpression, rebuild));
+        return JsonSerializer.Serialize(result);
+    }
+
     [McpServerTool, Description("Control square-tube length. If you already found the exact dimension name/token from ListFeatureDimensions, pass it as dimensionName and this tool will update that dimension directly. If dimensionName is omitted or cannot be resolved, the tool falls back to locating the square tube feature's parent-owned 2D/3D length-control sketch, choosing the line segment aligned with the requested global axis (X, Y, or Z), and updating or creating its driving dimension. Prefer dimensionName when available because square-tube length is often controlled by an external parent sketch dimension.")]
     public async Task<string> SetSquareTubeLength(
         [Description("Exact SolidWorks feature name for the square tube, for example Weldment1, Boss-Extrude3, or Structural Member2.")] string featureName,

@@ -156,6 +156,18 @@ This MCP tool is intended for automatic LLM use when a user asks to change an ov
 
 The returned matches include `NodeId`, `SourceIndex`, `Name`, `FeatureTypeName`, `FeaturePath`, `GraphPath`, `DocumentPath`, `HierarchyPath`, `ThreeViewOutputDirectory`, `Images`, matched direction labels, matched `global_axis_hint` values, and the original VLM structural fields. For example, a height request should search for `Z_height` candidates, then later editing tools can use the returned feature address fields to inspect or modify the likely dimension-driving feature.
 
+0e. Update a located SolidWorks dimension by name/token:
+
+```text
+SetDimensionValueByName(
+  dimensionName="D7@边线-法兰1",
+  valueExpression="100mm",
+  rebuild=true
+)
+```
+
+Use this after the model has identified the correct feature and dimension, for example by combining `SearchStructuralFeatureTargets` with `ListFeatureDimensions`. `dimensionName` can be a SolidWorks dimension token such as `D7@边线-法兰1`, a `FullName`, or a `DisplayDimensionSelectionName` returned by `ListFeatureDimensions`. `valueExpression` accepts `mm`, `cm`, or `m`; a unitless number is interpreted as meters. The result reports the previous and updated values in meters plus the matched owner feature when available.
+
 1. Capture a manifest and front/top/right images for the active assembly:
 
 ```text

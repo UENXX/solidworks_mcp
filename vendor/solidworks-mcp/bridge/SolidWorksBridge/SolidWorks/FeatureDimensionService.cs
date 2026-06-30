@@ -43,6 +43,22 @@ public record SquareTubeLengthUpdateResult(
     string? DimensionToken,
     string Message);
 
+public record DimensionValueUpdateResult(
+    string RequestedDimensionName,
+    string UnitExpression,
+    double NewValueMeters,
+    double? PreviousValueMeters,
+    double? UpdatedValueMeters,
+    string? DimensionToken,
+    string? FullName,
+    string? DisplayDimensionSelectionName,
+    string? OwnerFeatureName,
+    string? OwnerFeatureType,
+    bool WasDrivenDimension,
+    bool ConvertedToDriving,
+    string MatchMethod,
+    string Message);
+
 public enum CircularReferenceDimensionKind
 {
     Radius,
@@ -109,9 +125,18 @@ internal sealed record NamedSquareTubeDimensionResolution(
     Dimension Dimension,
     int Score);
 
+internal sealed record NamedDimensionResolution(
+    Feature? OwnerFeature,
+    DisplayDimension? DisplayDimension,
+    Dimension Dimension,
+    string MatchMethod,
+    string? OwnerFeatureName,
+    string? OwnerFeatureType);
+
 public interface IFeatureDimensionService
 {
     IReadOnlyList<FeatureDimensionCandidateInfo> ListFeatureDimensions(string featureName);
+    DimensionValueUpdateResult SetDimensionValueByName(string dimensionName, string valueExpression, bool rebuild = true);
     SquareTubeLengthUpdateResult SetSquareTubeLength(string featureName, CartesianAxis axis, string lengthExpression, string? dimensionName = null);
     AddDimensionResult AddDimension(
         AddDimensionKind dimensionKind,
@@ -191,6 +216,87 @@ public class FeatureDimensionService : IFeatureDimensionService
                 TrySetDisplayFeatureDimensions(doc, previousDisplayFeatureDimensions.Value);
             }
         }
+    }
+
+    public DimensionValueUpdateResult SetDimensionValueByName(
+        string dimensionName,
+        string valueExpression,
+        bool rebuild = true)
+    {
+        if (string.IsNullOrWhiteSpace(dimensionName))
+        {
+            throw new ArgumentException("dimensionName must not be empty.", nameof(dimensionName));
+        }
+
+        if (string.IsNullOrWhiteSpace(valueExpression))
+        {
+            throw new ArgumentException("valueExpression must not be empty.", nameof(valueExpression));
+        }
+
+        _connectionManager.EnsureConnected();
+        var doc = _connectionManager.SwApp!.IActiveDoc2
+            ?? throw new InvalidOperationException("No active document.");
+
+        string requestedDimensionName = NormalizeDimensionLookupName(dimensionName);
+        double newValueMeters = ParseLengthExpressionToMeters(valueExpression);
+        var resolution = ResolveDimensionByName(doc, requestedDimensionName)
+            ?? throw new InvalidOperationException(
+                $"Dimension '{dimensionName}' was not found in the active document. Use ListFeatureDimensions(featureName) first when the dimension belongs to a specific feature, then pass the returned DimensionToken, FullName, or DisplayDimensionSelectionName.");
+
+        var dimension = resolution.Dimension;
+        bool wasDriven = false;
+        bool convertedToDriving = false;
+        try
+        {
+            wasDriven = dimension.DrivenState == (int)swDimensionDrivenState_e.swDimensionDriven;
+            if (wasDriven)
+            {
+                dimension.DrivenState = (int)swDimensionDrivenState_e.swDimensionDriving;
+                convertedToDriving = dimension.DrivenState != (int)swDimensionDrivenState_e.swDimensionDriven;
+                if (!convertedToDriving)
+                {
+                    throw new InvalidOperationException(
+                        $"Dimension '{dimensionName}' is driven/reference-only and SolidWorks did not allow converting it to a driving dimension.");
+                }
+            }
+        }
+        catch
+        {
+            wasDriven = false;
+            convertedToDriving = false;
+        }
+
+        double? previousValue = TryReadDimensionValue(dimension);
+        SetDimensionSystemValue(dimension, newValueMeters);
+        if (rebuild)
+        {
+            doc.EditRebuild3();
+        }
+
+        double? updatedValue = TryReadDimensionValue(dimension);
+        string? fullName = TryReadDimensionFullName(dimension);
+        string? token = fullName ?? SafeGetDimensionSelectionName(dimension);
+        string? displaySelectionName = resolution.DisplayDimension == null
+            ? null
+            : SafeGetDisplayDimensionSelectionName(resolution.DisplayDimension);
+
+        return new DimensionValueUpdateResult(
+            requestedDimensionName,
+            valueExpression.Trim(),
+            newValueMeters,
+            previousValue,
+            updatedValue,
+            string.IsNullOrWhiteSpace(token) ? null : token.Trim(),
+            string.IsNullOrWhiteSpace(fullName) ? null : fullName.Trim(),
+            string.IsNullOrWhiteSpace(displaySelectionName) ? null : displaySelectionName.Trim(),
+            resolution.OwnerFeatureName,
+            resolution.OwnerFeatureType,
+            wasDriven,
+            convertedToDriving,
+            resolution.MatchMethod,
+            rebuild
+                ? $"Updated dimension '{requestedDimensionName}' and rebuilt the active document."
+                : $"Updated dimension '{requestedDimensionName}' without rebuilding the active document.");
     }
 
     public SquareTubeLengthUpdateResult SetSquareTubeLength(
@@ -1220,6 +1326,48 @@ public class FeatureDimensionService : IFeatureDimensionService
         return false;
     }
 
+    private static NamedDimensionResolution? ResolveDimensionByName(IModelDoc2 doc, string dimensionName)
+    {
+        string normalizedName = NormalizeDimensionLookupName(dimensionName);
+        if (string.IsNullOrWhiteSpace(normalizedName))
+        {
+            return null;
+        }
+
+        var directDimension = TryGetDocumentParameter(doc, normalizedName);
+        if (directDimension != null)
+        {
+            return new NamedDimensionResolution(
+                null,
+                null,
+                directDimension,
+                "document-parameter",
+                null,
+                null);
+        }
+
+        foreach (var feature in EnumerateDocumentFeatures(doc))
+        {
+            foreach (var candidate in EnumerateNamedDimensions(feature))
+            {
+                if (!DimensionNameMatches(candidate.DisplayDimension, candidate.Dimension, normalizedName))
+                {
+                    continue;
+                }
+
+                return new NamedDimensionResolution(
+                    feature,
+                    candidate.DisplayDimension,
+                    candidate.Dimension,
+                    "feature-display-dimension",
+                    SafeGetFeatureName(feature),
+                    SafeGetFeatureTypeName(feature));
+            }
+        }
+
+        return null;
+    }
+
     private static SquareTubeLengthUpdateResult UpdateSquareTubeNamedDimension(
         IModelDoc2 doc,
         Feature feature,
@@ -1419,13 +1567,23 @@ public class FeatureDimensionService : IFeatureDimensionService
             yield break;
         }
 
-        yield return trimmed;
-
-        if (trimmed.StartsWith("D", StringComparison.OrdinalIgnoreCase)
-            && trimmed.Length > 1
-            && char.IsDigit(trimmed[1]))
+        var names = new List<string> { trimmed };
+        string shortName = NormalizeDimensionShortName(trimmed);
+        if (!string.Equals(shortName, trimmed, StringComparison.OrdinalIgnoreCase))
         {
-            yield return $"\"{trimmed}\"";
+            names.Add(shortName);
+        }
+
+        foreach (string name in names.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            yield return name;
+
+            if (name.StartsWith("D", StringComparison.OrdinalIgnoreCase)
+                && name.Length > 1
+                && char.IsDigit(name[1]))
+            {
+                yield return $"\"{name}\"";
+            }
         }
     }
 
