@@ -52,11 +52,18 @@ if (Test-FileLocked $targetExe) {
     $outputPath = Join-Path $repoRoot ("artifacts\solidworks-mcp-" + $stamp)
     Write-Host "Target exe is in use. Publishing to alternate directory: $outputPath"
 }
+elseif (Test-Path $outputPath) {
+    Remove-Item -LiteralPath $outputPath -Recurse -Force
+}
 
 & $dotnet.Source publish $projectPath `
     -c $Configuration `
     -r $Runtime `
     --self-contained true `
+    /p:PublishSingleFile=false `
+    /p:IncludeNativeLibrariesForSelfExtract=false `
+    /p:EnableCompressionInSingleFile=false `
+    /p:UseSharedCompilation=false `
     -o $outputPath
 
 if ($LASTEXITCODE -ne 0) {

@@ -153,4 +153,157 @@ public class AssemblyEntityAnnotationServiceTests
             }
         }
     }
+
+    [Fact]
+    public void SearchStructuralFeatureTargets_FindsStructuralFeatureByGlobalAxisHint()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"sw-mcp-feature-structure-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string annotationPath = Path.Combine(directory, "feature-structure-annotations.json");
+        try
+        {
+            var annotationSet = new
+            {
+                schemaVersion = AssemblyEntityAnnotationService.FeatureStructureAnnotationSchemaVersion,
+                annotationPath,
+                targetCount = 3,
+                completedCount = 3,
+                failedCount = 0,
+                entries = new object[]
+                {
+                    new
+                    {
+                        annotationStatus = "completed",
+                        sourceIndex = 0,
+                        nodeId = "node-width",
+                        name = "WidthFeature",
+                        featureTypeName = "Extrusion",
+                        graphPath = "root/WidthFeature",
+                        isStructural = true,
+                        structuralCategory = "base_plate",
+                        primaryDirection = new
+                        {
+                            label = "front.horizontal",
+                            view = "front",
+                            axis = "horizontal",
+                            global_axis_hint = "X_width",
+                            influence = "sets_overall_extent",
+                            confidence = 0.9,
+                        },
+                        affectedDirections = new object[]
+                        {
+                            new
+                            {
+                                label = "front.horizontal",
+                                view = "front",
+                                axis = "horizontal",
+                                global_axis_hint = "X_width",
+                                influence = "sets_overall_extent",
+                                confidence = 0.9,
+                            },
+                        },
+                        dimensionChangeIntent = new
+                        {
+                            can_drive_overall_size_change = true,
+                            recommended_edit_axis = "width",
+                            edit_relevance = "direct",
+                        },
+                        confidence = 0.92,
+                    },
+                    new
+                    {
+                        annotationStatus = "completed",
+                        sourceIndex = 1,
+                        nodeId = "node-height",
+                        name = "HeightPost",
+                        featureTypeName = "WeldMemberFeat",
+                        graphPath = "root/HeightPost",
+                        isStructural = true,
+                        structuralCategory = "frame_member",
+                        primaryDirection = new
+                        {
+                            label = "front.vertical",
+                            view = "front",
+                            axis = "vertical",
+                            global_axis_hint = "Z_height",
+                            influence = "sets_overall_extent",
+                            confidence = 0.95,
+                        },
+                        affectedDirections = new object[]
+                        {
+                            new
+                            {
+                                label = "right.vertical",
+                                view = "right",
+                                axis = "vertical",
+                                global_axis_hint = "Z_height",
+                                influence = "sets_overall_extent",
+                                confidence = 0.88,
+                            },
+                        },
+                        dimensionChangeIntent = new
+                        {
+                            can_drive_overall_size_change = true,
+                            recommended_edit_axis = "height",
+                            edit_relevance = "direct",
+                        },
+                        confidence = 0.96,
+                    },
+                    new
+                    {
+                        annotationStatus = "completed",
+                        sourceIndex = 2,
+                        nodeId = "node-decorative",
+                        name = "DecorativeCover",
+                        featureTypeName = "Extrusion",
+                        isStructural = false,
+                        primaryDirection = new
+                        {
+                            label = "front.vertical",
+                            view = "front",
+                            axis = "vertical",
+                            global_axis_hint = "Z_height",
+                            influence = "local_only",
+                            confidence = 0.4,
+                        },
+                        dimensionChangeIntent = new
+                        {
+                            can_drive_overall_size_change = false,
+                            recommended_edit_axis = "height",
+                            edit_relevance = "none",
+                        },
+                        confidence = 0.4,
+                    },
+                },
+            };
+
+            File.WriteAllText(
+                annotationPath,
+                JsonSerializer.Serialize(annotationSet, new JsonSerializerOptions { WriteIndented = true }),
+                Encoding.UTF8);
+
+            var service = new AssemblyEntityAnnotationService(new Mock<ISwConnectionManager>().Object);
+
+            var result = service.SearchStructuralFeatureTargets(
+                annotationPath,
+                direction: null,
+                query: "整体高度增加100mm",
+                onlyStructural: true,
+                maxResults: 10);
+
+            Assert.Equal("Z_height", result.RequestedGlobalAxisHint);
+            var match = Assert.Single(result.Matches);
+            Assert.Equal("node-height", match.Annotation.NodeId);
+            Assert.Equal("Z_height", Assert.Single(match.MatchedGlobalAxisHints));
+            Assert.True(match.PrimaryDirectionMatched);
+            Assert.True(match.Annotation.IsStructural);
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
 }

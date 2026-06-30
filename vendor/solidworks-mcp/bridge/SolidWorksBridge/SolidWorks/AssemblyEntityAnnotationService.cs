@@ -197,6 +197,110 @@ public sealed record AssemblyStructuralComponentQueryResult
     public IReadOnlyList<AssemblyStructuralComponentMatchInfo> Matches { get; init; } = Array.Empty<AssemblyStructuralComponentMatchInfo>();
 }
 
+public sealed record FeatureStructureDirectionInfo
+{
+    public string Label { get; init; } = "unknown";
+    public string View { get; init; } = "unknown";
+    public string Axis { get; init; } = "unknown";
+
+    [JsonPropertyName("global_axis_hint")]
+    public string GlobalAxisHint { get; init; } = "unknown";
+
+    public string Influence { get; init; } = "unknown";
+    public double? Confidence { get; init; }
+}
+
+public sealed record FeatureStructureDimensionChangeIntent
+{
+    [JsonPropertyName("can_drive_overall_size_change")]
+    public bool CanDriveOverallSizeChange { get; init; }
+
+    [JsonPropertyName("recommended_edit_axis")]
+    public string? RecommendedEditAxis { get; init; }
+
+    [JsonPropertyName("edit_relevance")]
+    public string? EditRelevance { get; init; }
+}
+
+public sealed record FeatureStructureEvidence
+{
+    [JsonPropertyName("red_feature_location")]
+    public string? RedFeatureLocation { get; init; }
+
+    public string? Reason { get; init; }
+    public string? Uncertainty { get; init; }
+}
+
+public sealed record FeatureStructureAnnotationEntry
+{
+    public string SchemaVersion { get; init; } = AssemblyEntityAnnotationService.FeatureStructureAnnotationSchemaVersion;
+    public DateTime? AnnotatedUtc { get; init; }
+    public string AnnotationStatus { get; init; } = string.Empty;
+    public string? Error { get; init; }
+    public string? Model { get; init; }
+    public string? Endpoint { get; init; }
+    public int SourceIndex { get; init; }
+    public string? NodeId { get; init; }
+    public string? Name { get; init; }
+    public string? FeatureTypeName { get; init; }
+    public string? FeaturePath { get; init; }
+    public string? GraphPath { get; init; }
+    public string? DocumentTitle { get; init; }
+    public string? DocumentPath { get; init; }
+    public string? HierarchyPath { get; init; }
+    public string? ThreeViewOutputDirectory { get; init; }
+    public Dictionary<string, string> Images { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+    public bool IsStructural { get; init; }
+    public string? StructuralCategory { get; init; }
+    public FeatureStructureDirectionInfo PrimaryDirection { get; init; } = new();
+    public IReadOnlyList<FeatureStructureDirectionInfo> AffectedDirections { get; init; } = Array.Empty<FeatureStructureDirectionInfo>();
+    public FeatureStructureDimensionChangeIntent DimensionChangeIntent { get; init; } = new();
+    public FeatureStructureEvidence Evidence { get; init; } = new();
+    public double? Confidence { get; init; }
+}
+
+public sealed record FeatureStructureAnnotationSet
+{
+    public string SchemaVersion { get; init; } = AssemblyEntityAnnotationService.FeatureStructureAnnotationSchemaVersion;
+    public DateTime? UpdatedUtc { get; init; }
+    public string? Model { get; init; }
+    public string? Endpoint { get; init; }
+    public string? FeatureTreePath { get; init; }
+    public string? FilteredFeatureTreePath { get; init; }
+    public string? ThreeViewManifestPath { get; init; }
+    public string AnnotationPath { get; init; } = string.Empty;
+    public string? AnnotatedFeatureTreePath { get; init; }
+    public int TargetCount { get; init; }
+    public int CompletedCount { get; init; }
+    public int FailedCount { get; init; }
+    public IReadOnlyList<FeatureStructureAnnotationEntry> Entries { get; init; } = Array.Empty<FeatureStructureAnnotationEntry>();
+}
+
+public sealed record FeatureStructureAnnotationMatchInfo
+{
+    public int Rank { get; init; }
+    public int SourceIndex { get; init; }
+    public int Score { get; init; }
+    public bool PrimaryDirectionMatched { get; init; }
+    public IReadOnlyList<string> MatchedDirections { get; init; } = Array.Empty<string>();
+    public IReadOnlyList<string> MatchedGlobalAxisHints { get; init; } = Array.Empty<string>();
+    public FeatureStructureAnnotationEntry Annotation { get; init; } = new();
+}
+
+public sealed record FeatureStructureAnnotationQueryResult
+{
+    public string AnnotationPath { get; init; } = string.Empty;
+    public string? Direction { get; init; }
+    public string? RequestedGlobalAxisHint { get; init; }
+    public IReadOnlyList<string> RequestedDirectionLabels { get; init; } = Array.Empty<string>();
+    public string? Query { get; init; }
+    public bool OnlyStructural { get; init; }
+    public int TotalEntryCount { get; init; }
+    public int StructuralEntryCount { get; init; }
+    public int MatchCount { get; init; }
+    public IReadOnlyList<FeatureStructureAnnotationMatchInfo> Matches { get; init; } = Array.Empty<FeatureStructureAnnotationMatchInfo>();
+}
+
 public sealed record AssemblyEntityHighlightResult
 {
     public string SourcePath { get; init; } = string.Empty;
@@ -206,8 +310,230 @@ public sealed record AssemblyEntityHighlightResult
     public AssemblyEntitySelectionStatus Selection { get; init; } = new();
 }
 
+public sealed record SolidWorksFeatureTreeDocumentInfo
+{
+    public string EntityKind { get; init; } = "document";
+    public string DocumentId { get; init; } = string.Empty;
+    public string Role { get; init; } = string.Empty;
+    public string Title { get; init; } = string.Empty;
+    public string? Path { get; init; }
+    public int Type { get; init; }
+    public string TypeName { get; init; } = string.Empty;
+    public string? ComponentName { get; init; }
+    public string? ComponentRawName { get; init; }
+    public string? ComponentPath { get; init; }
+    public string? HierarchyPath { get; init; }
+    public int? ComponentDepth { get; init; }
+    public bool IsLoaded { get; init; } = true;
+    public string? LoadStatus { get; init; }
+    public bool FeaturesSkipped { get; init; }
+    public string? FeaturesSkippedReason { get; init; }
+    [JsonIgnore]
+    public IReadOnlyList<SolidWorksFeatureTreeFeatureNode> Features { get; init; } = Array.Empty<SolidWorksFeatureTreeFeatureNode>();
+    [JsonIgnore]
+    public IReadOnlyList<SolidWorksFeatureTreeDocumentInfo> ComponentChildren { get; init; } = Array.Empty<SolidWorksFeatureTreeDocumentInfo>();
+    public IReadOnlyList<object> Children => Features
+        .Cast<object>()
+        .Concat(ComponentChildren.Cast<object>())
+        .ToList()
+        .AsReadOnly();
+}
+
+public sealed record SolidWorksFeatureTreeFeatureNode
+{
+    public string NodeId { get; init; } = string.Empty;
+    public string EntityKind { get; init; } = "feature";
+    public string Name { get; init; } = string.Empty;
+    public string? FeatureTypeName { get; init; }
+    public string FeaturePath { get; init; } = string.Empty;
+    public string GraphPath { get; init; } = string.Empty;
+    public bool HasSubFeatures { get; init; }
+    public bool SubFeaturesOmitted { get; init; }
+    public string? SubFeaturesOmittedReason { get; init; }
+    public int Depth { get; init; }
+    public int SiblingIndex { get; init; }
+    public string DocumentId { get; init; } = string.Empty;
+    public string? DocumentTitle { get; init; }
+    public string? DocumentPath { get; init; }
+    public string? ComponentName { get; init; }
+    public string? ComponentRawName { get; init; }
+    public string? ComponentPath { get; init; }
+    public string? HierarchyPath { get; init; }
+    public int? ComponentDepth { get; init; }
+    [JsonIgnore]
+    public IReadOnlyList<SolidWorksFeatureTreeFeatureNode> FeatureChildren { get; init; } = Array.Empty<SolidWorksFeatureTreeFeatureNode>();
+    [JsonIgnore]
+    public IReadOnlyList<SolidWorksFeatureTreeDocumentInfo> ReferenceDocumentChildren { get; init; } = Array.Empty<SolidWorksFeatureTreeDocumentInfo>();
+    public IReadOnlyList<object> Children => FeatureChildren
+        .Cast<object>()
+        .Concat(ReferenceDocumentChildren.Cast<object>())
+        .ToList()
+        .AsReadOnly();
+}
+
+public sealed record SolidWorksFeatureTreeExportResult
+{
+    public string SchemaVersion { get; init; } = AssemblyEntityAnnotationService.FeatureTreeSchemaVersion;
+    public DateTime CreatedUtc { get; init; } = DateTime.UtcNow;
+    public string OutputDirectory { get; init; } = string.Empty;
+    public string FeatureTreePath { get; init; } = string.Empty;
+    public string DocumentJournalPath { get; init; } = string.Empty;
+    public string ActiveDocumentTitle { get; init; } = string.Empty;
+    public string? ActiveDocumentPath { get; init; }
+    public int ActiveDocumentType { get; init; }
+    public string ActiveDocumentTypeName { get; init; } = string.Empty;
+    public int DocumentCount { get; init; }
+    public int FeatureCount { get; init; }
+    public SolidWorksFeatureTreeDocumentInfo RootDocument { get; init; } = new();
+}
+
+public sealed record SolidWorksFeatureTreeExportSummary
+{
+    public string SchemaVersion { get; init; } = AssemblyEntityAnnotationService.FeatureTreeSchemaVersion;
+    public DateTime CreatedUtc { get; init; }
+    public string OutputDirectory { get; init; } = string.Empty;
+    public string FeatureTreePath { get; init; } = string.Empty;
+    public string DocumentJournalPath { get; init; } = string.Empty;
+    public string ActiveDocumentTitle { get; init; } = string.Empty;
+    public string? ActiveDocumentPath { get; init; }
+    public int ActiveDocumentType { get; init; }
+    public string ActiveDocumentTypeName { get; init; } = string.Empty;
+    public int DocumentCount { get; init; }
+    public int FeatureCount { get; init; }
+}
+
+public sealed record SolidWorksFeatureTreeExportProgress
+{
+    public DateTime UpdatedUtc { get; init; } = DateTime.UtcNow;
+    public string Stage { get; init; } = string.Empty;
+    public string Message { get; init; } = string.Empty;
+    public string OutputDirectory { get; init; } = string.Empty;
+    public string FeatureTreePath { get; init; } = string.Empty;
+    public string DocumentJournalPath { get; init; } = string.Empty;
+    public string? CurrentDocumentTitle { get; init; }
+    public string? CurrentDocumentPath { get; init; }
+    public string? CurrentComponentName { get; init; }
+    public string? CurrentHierarchyPath { get; init; }
+    public int DocumentCount { get; init; }
+    public int FeatureCount { get; init; }
+}
+
+public sealed record SolidWorksFeatureTreeDocumentJournalEntry
+{
+    public string SchemaVersion { get; init; } = AssemblyEntityAnnotationService.FeatureTreeSchemaVersion;
+    public DateTime WrittenUtc { get; init; } = DateTime.UtcNow;
+    public string OutputDirectory { get; init; } = string.Empty;
+    public string FeatureTreePath { get; init; } = string.Empty;
+    public string DocumentJournalPath { get; init; } = string.Empty;
+    public string DocumentId { get; init; } = string.Empty;
+    public string Role { get; init; } = string.Empty;
+    public string Title { get; init; } = string.Empty;
+    public string? Path { get; init; }
+    public string? ComponentName { get; init; }
+    public string? HierarchyPath { get; init; }
+    public bool FeaturesSkipped { get; init; }
+    public int FeatureCount { get; init; }
+    public SolidWorksFeatureTreeDocumentInfo Document { get; init; } = new();
+}
+
+public sealed record SolidWorksFilteredFeatureTreeParentDocument
+{
+    public string? Path { get; init; }
+}
+
+public sealed record SolidWorksFilteredFeatureTreeTarget
+{
+    public int SourceIndex { get; init; }
+    public string EntityKind { get; init; } = string.Empty;
+    public string? NodeId { get; init; }
+    public string? Name { get; init; }
+    public string? FeatureTypeName { get; init; }
+    public string? FeaturePath { get; init; }
+    public string? GraphPath { get; init; }
+    public bool HasSubFeatures { get; init; }
+    public string? DocumentId { get; init; }
+    public string? DocumentTitle { get; init; }
+    public string? DocumentPath { get; init; }
+    public string? ComponentName { get; init; }
+    public string? ComponentRawName { get; init; }
+    public string? ComponentPath { get; init; }
+    public string? HierarchyPath { get; init; }
+    public int? ComponentDepth { get; init; }
+    public SolidWorksFilteredFeatureTreeParentDocument? ParentDocument { get; init; }
+}
+
+public sealed record SolidWorksFilteredFeatureTree
+{
+    public string SchemaVersion { get; init; } = string.Empty;
+    public DateTime CreatedUtc { get; init; }
+    public string SourceFeatureTreePath { get; init; } = string.Empty;
+    public string OutputPath { get; init; } = string.Empty;
+    public int DocumentCount { get; init; }
+    public int SourceFeatureCount { get; init; }
+    public int TargetCount { get; init; }
+    public IReadOnlyList<SolidWorksFilteredFeatureTreeTarget> Targets { get; init; } = Array.Empty<SolidWorksFilteredFeatureTreeTarget>();
+}
+
+public sealed record SolidWorksFeatureThreeViewImageInfo
+{
+    public string Variant { get; init; } = string.Empty;
+    public string ViewName { get; init; } = string.Empty;
+    public string OutputPath { get; init; } = string.Empty;
+    public int Width { get; init; }
+    public int Height { get; init; }
+}
+
+public sealed record SolidWorksFeatureThreeViewTargetResult
+{
+    public int SourceIndex { get; init; }
+    public string? NodeId { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public string? FeatureTypeName { get; init; }
+    public string? FeaturePath { get; init; }
+    public string? GraphPath { get; init; }
+    public string? DocumentTitle { get; init; }
+    public string? DocumentPath { get; init; }
+    public string? HierarchyPath { get; init; }
+    public string OutputDirectory { get; init; } = string.Empty;
+    public AssemblyEntitySelectionStatus Selection { get; init; } = new();
+    public IReadOnlyList<SolidWorksFeatureThreeViewImageInfo> Images { get; init; } = Array.Empty<SolidWorksFeatureThreeViewImageInfo>();
+}
+
+public sealed record SolidWorksFeatureThreeViewCaptureResult
+{
+    public string SchemaVersion { get; init; } = AssemblyEntityAnnotationService.FeatureThreeViewSchemaVersion;
+    public DateTime CreatedUtc { get; init; } = DateTime.UtcNow;
+    public string FilteredFeatureTreePath { get; init; } = string.Empty;
+    public string OutputDirectory { get; init; } = string.Empty;
+    public string ManifestPath { get; init; } = string.Empty;
+    public int Width { get; init; }
+    public int Height { get; init; }
+    public int TargetCount { get; init; }
+    public int TotalTargetCount { get; init; }
+    public int StartIndex { get; init; }
+    public int MaxTargets { get; init; }
+    public int ProcessedThisRun { get; init; }
+    public int SkippedExistingCount { get; init; }
+    public int NextStartIndex { get; init; }
+    public string? StoppedReason { get; init; }
+    public IReadOnlyList<SolidWorksFeatureThreeViewTargetResult> Targets { get; init; } = Array.Empty<SolidWorksFeatureThreeViewTargetResult>();
+}
+
 public interface IAssemblyEntityAnnotationService
 {
+    SolidWorksFeatureTreeExportResult ExportActiveDocumentFeatureTree(
+        string outputDirectory,
+        bool overwrite = false,
+        bool expandManagementFeatureSubTrees = false,
+        bool expandFeatureSubTrees = false,
+        bool includeComponentFeatures = false,
+        bool includePartFeatures = true,
+        bool activeDocumentOnly = false,
+        string[]? skipFeatureDocumentPaths = null,
+        bool appendDocumentJournal = false,
+        bool skipImportedFeatureDocuments = true,
+        bool exportDuplicateSourceDocumentFeatures = false);
+
     AssemblyEntityAnnotationTargetIndex BuildActiveAssemblyEntityAnnotationTargetIndex(
         string outputDirectory,
         bool includeComponents = true,
@@ -229,6 +555,19 @@ public interface IAssemblyEntityAnnotationService
         int maxDurationSeconds = 45,
         bool useCleanDisplayMode = false,
         double capturePaddingFactor = 1.35);
+
+    SolidWorksFeatureThreeViewCaptureResult CaptureFilteredFeatureTreeThreeViews(
+        string filteredFeatureTreePath,
+        int width = 1280,
+        int height = 720,
+        int startIndex = 0,
+        int maxTargets = 1,
+        bool skipExistingTargets = true,
+        bool writeManifestAfterEachTarget = true,
+        int maxDurationSeconds = 45,
+        double capturePaddingFactor = 1.35,
+        bool overwrite = false,
+        int maxTransparentFaces = 1000);
 
     AssemblyEntityAnnotationCaptureResult CaptureActiveAssemblyEntityAnnotationSet(
         string outputDirectory,
@@ -274,6 +613,13 @@ public interface IAssemblyEntityAnnotationService
         string? query = null,
         int maxResults = 20);
 
+    FeatureStructureAnnotationQueryResult SearchStructuralFeatureTargets(
+        string annotationPath,
+        string? direction = null,
+        string? query = null,
+        bool onlyStructural = true,
+        int maxResults = 20);
+
     AssemblyEntityHighlightResult HighlightAssemblyEntityAnnotationTarget(
         string manifestOrAnnotationPath,
         string targetId);
@@ -284,10 +630,21 @@ public sealed class AssemblyEntityAnnotationService : IAssemblyEntityAnnotationS
     public const string CaptureSchemaVersion = "solidworks-mcp.assembly-entity-capture.v1";
     public const string TargetIndexSchemaVersion = "solidworks-mcp.assembly-entity-target-index.v1";
     public const string AnnotationSchemaVersion = "solidworks-mcp.assembly-dimension-annotations.v1";
+    public const string FeatureTreeSchemaVersion = "solidworks-mcp.feature-tree.v4";
+    public const string FeatureThreeViewSchemaVersion = "solidworks-mcp.feature-three-views.v1";
+    public const string FeatureStructureAnnotationSchemaVersion = "solidworks-mcp.feature-structure-vlm.v1";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        PropertyNameCaseInsensitive = true,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    };
+
+    private static readonly JsonSerializerOptions JsonLineOptions = new()
+    {
+        WriteIndented = false,
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
         PropertyNameCaseInsensitive = true,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
@@ -393,6 +750,13 @@ public sealed class AssemblyEntityAnnotationService : IAssemblyEntityAnnotationS
         0.35, 0.0, 0.0,
     ];
 
+    private static readonly double[] TransparentContextMaterial =
+    [
+        0.72, 0.72, 0.72,
+        0.2, 0.35, 0.75,
+        0.2, 0.85, 0.0,
+    ];
+
     private static readonly int MaterialConfigurationOption = (int)swInConfigurationOpts_e.swThisConfiguration;
 
     private readonly ISwConnectionManager _cm;
@@ -407,6 +771,8 @@ public sealed class AssemblyEntityAnnotationService : IAssemblyEntityAnnotationS
         string? FallbackSelectionKind = null);
 
     private sealed record RuntimeTargetBatchItem(RuntimeTarget Target, int SourceIndex);
+
+    private sealed record FilteredFeatureRuntimeTarget(RuntimeTarget Target, int SourceIndex);
 
     private sealed record MaterialSnapshot(object Target, string Kind, bool HadMaterial, object? OriginalValues);
 
@@ -450,6 +816,123 @@ public sealed class AssemblyEntityAnnotationService : IAssemblyEntityAnnotationS
     public AssemblyEntityAnnotationService(ISwConnectionManager cm)
     {
         _cm = cm ?? throw new ArgumentNullException(nameof(cm));
+    }
+
+    public SolidWorksFeatureTreeExportResult ExportActiveDocumentFeatureTree(
+        string outputDirectory,
+        bool overwrite = false,
+        bool expandManagementFeatureSubTrees = false,
+        bool expandFeatureSubTrees = false,
+        bool includeComponentFeatures = false,
+        bool includePartFeatures = true,
+        bool activeDocumentOnly = false,
+        string[]? skipFeatureDocumentPaths = null,
+        bool appendDocumentJournal = false,
+        bool skipImportedFeatureDocuments = true,
+        bool exportDuplicateSourceDocumentFeatures = false)
+    {
+        if (string.IsNullOrWhiteSpace(outputDirectory))
+        {
+            throw new ArgumentException("outputDirectory must not be empty.", nameof(outputDirectory));
+        }
+
+        string normalizedDirectory = Path.GetFullPath(outputDirectory);
+        Directory.CreateDirectory(normalizedDirectory);
+        string featureTreePath = Path.Combine(normalizedDirectory, "feature-tree.json");
+        string progressPath = Path.Combine(normalizedDirectory, "feature-tree-progress.json");
+        string documentJournalPath = Path.Combine(normalizedDirectory, "feature-tree-documents.jsonl");
+        if (!overwrite && File.Exists(featureTreePath))
+        {
+            var existingExport = LoadFeatureTreeExport(featureTreePath);
+            if (string.Equals(existingExport.SchemaVersion, FeatureTreeSchemaVersion, StringComparison.OrdinalIgnoreCase))
+            {
+                return existingExport;
+            }
+        }
+
+        WriteFeatureTreeProgress(
+            progressPath,
+            new SolidWorksFeatureTreeExportProgress
+            {
+                Stage = "starting",
+                Message = "Preparing to export the active document feature tree.",
+                OutputDirectory = normalizedDirectory,
+                FeatureTreePath = featureTreePath,
+                DocumentJournalPath = documentJournalPath,
+            });
+        if (overwrite && !appendDocumentJournal && File.Exists(documentJournalPath))
+        {
+            File.Delete(documentJournalPath);
+        }
+
+        _cm.EnsureConnected();
+        WriteFeatureTreeProgress(
+            progressPath,
+            new SolidWorksFeatureTreeExportProgress
+            {
+                Stage = "connected",
+                Message = "Connected to SolidWorks; reading active document.",
+                OutputDirectory = normalizedDirectory,
+                FeatureTreePath = featureTreePath,
+                DocumentJournalPath = documentJournalPath,
+            });
+        var activeDocument = GetActiveModelDoc();
+        var visitedDocuments = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var exportedFeatureSourceDocuments = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var skippedFeatureDocuments = NormalizeFeatureDocumentSkipSet(skipFeatureDocumentPaths);
+        var root = ExportFeatureTreeDocument(
+            activeDocument,
+            role: "active",
+            component: null,
+            componentInfo: null,
+            visitedDocuments,
+            expandManagementFeatureSubTrees,
+            expandFeatureSubTrees,
+            includeComponentFeatures,
+            includePartFeatures,
+            skippedFeatureDocuments,
+            skipImportedFeatureDocuments,
+            exportDuplicateSourceDocumentFeatures,
+            exportedFeatureSourceDocuments,
+            progressPath,
+            normalizedDirectory,
+            featureTreePath,
+            documentJournalPath,
+            includeChildren: !activeDocumentOnly);
+        int documentCount = CountFeatureTreeDocuments(root);
+        int featureCount = CountFeatureTreeFeatures(root);
+        var result = new SolidWorksFeatureTreeExportResult
+        {
+            SchemaVersion = FeatureTreeSchemaVersion,
+            CreatedUtc = DateTime.UtcNow,
+            OutputDirectory = normalizedDirectory,
+            FeatureTreePath = featureTreePath,
+            DocumentJournalPath = documentJournalPath,
+            ActiveDocumentTitle = root.Title,
+            ActiveDocumentPath = root.Path,
+            ActiveDocumentType = root.Type,
+            ActiveDocumentTypeName = root.TypeName,
+            DocumentCount = documentCount,
+            FeatureCount = featureCount,
+            RootDocument = root,
+        };
+
+        WriteJson(featureTreePath, result);
+        WriteFeatureTreeProgress(
+            progressPath,
+            new SolidWorksFeatureTreeExportProgress
+            {
+                Stage = "completed",
+                Message = "Feature tree export completed.",
+                OutputDirectory = normalizedDirectory,
+                FeatureTreePath = featureTreePath,
+                DocumentJournalPath = documentJournalPath,
+                CurrentDocumentTitle = result.ActiveDocumentTitle,
+                CurrentDocumentPath = result.ActiveDocumentPath,
+                DocumentCount = documentCount,
+                FeatureCount = featureCount,
+            });
+        return result;
     }
 
     public AssemblyEntityAnnotationTargetIndex BuildActiveAssemblyEntityAnnotationTargetIndex(
@@ -559,6 +1042,177 @@ public sealed class AssemblyEntityAnnotationService : IAssemblyEntityAnnotationS
             capturePaddingFactor,
             advanceToSourceIndexWhenComplete,
             unresolvedTargetCount: entries.Count - runtimeTargets.Count);
+    }
+
+    public SolidWorksFeatureThreeViewCaptureResult CaptureFilteredFeatureTreeThreeViews(
+        string filteredFeatureTreePath,
+        int width = 1280,
+        int height = 720,
+        int startIndex = 0,
+        int maxTargets = 1,
+        bool skipExistingTargets = true,
+        bool writeManifestAfterEachTarget = true,
+        int maxDurationSeconds = 45,
+        double capturePaddingFactor = 1.35,
+        bool overwrite = false,
+        int maxTransparentFaces = 1000)
+    {
+        ValidateCaptureArguments(
+            string.IsNullOrWhiteSpace(filteredFeatureTreePath) ? "." : Path.GetDirectoryName(Path.GetFullPath(filteredFeatureTreePath)) ?? ".",
+            width,
+            height,
+            maxTargets,
+            startIndex,
+            maxDurationSeconds,
+            capturePaddingFactor);
+        if (string.IsNullOrWhiteSpace(filteredFeatureTreePath))
+        {
+            throw new ArgumentException("filteredFeatureTreePath must not be empty.", nameof(filteredFeatureTreePath));
+        }
+
+        string normalizedFilteredPath = Path.GetFullPath(filteredFeatureTreePath);
+        var filtered = LoadFilteredFeatureTree(normalizedFilteredPath);
+        string baseDirectory = Path.GetDirectoryName(normalizedFilteredPath) ?? Directory.GetCurrentDirectory();
+        string outputDirectory = Path.Combine(baseDirectory, "three_views");
+        Directory.CreateDirectory(outputDirectory);
+        string manifestPath = Path.Combine(outputDirectory, "three-view-manifest.json");
+
+        _cm.EnsureConnected();
+        var activeDocument = GetActiveModelDoc();
+        var assembly = SafeGetDocumentType(activeDocument) == (int)swDocumentTypes_e.swDocASSEMBLY
+            ? activeDocument as IAssemblyDoc
+            : null;
+        if (overwrite || startIndex <= 0)
+        {
+            ClearTemporaryCaptureAppearance(activeDocument, scanWholeModel: true);
+        }
+
+        var existingManifest = File.Exists(manifestPath) && !overwrite
+            ? LoadFeatureThreeViewCaptureResult(manifestPath)
+            : null;
+        var capturedTargets = existingManifest?.Targets
+            .DistinctBy(target => $"{target.SourceIndex}|{target.FeaturePath}|{target.HierarchyPath}", StringComparer.OrdinalIgnoreCase)
+            .ToList()
+            ?? [];
+        var capturedKeys = new HashSet<string>(
+            capturedTargets.Select(CreateThreeViewTargetKey),
+            StringComparer.OrdinalIgnoreCase);
+
+        var candidates = filtered.Targets
+            .Where(target => target.SourceIndex >= startIndex)
+            .ToList();
+        var batchTargets = candidates;
+        int skippedExistingCount = 0;
+        if (skipExistingTargets)
+        {
+            int before = batchTargets.Count;
+            batchTargets = batchTargets
+                .Where(target => !capturedKeys.Contains(CreateThreeViewTargetKey(target)))
+                .ToList();
+            skippedExistingCount = before - batchTargets.Count;
+        }
+
+        if (maxTargets > 0)
+        {
+            batchTargets = batchTargets.Take(maxTargets).ToList();
+        }
+
+        WriteFeatureThreeViewManifest(
+            manifestPath,
+            normalizedFilteredPath,
+            outputDirectory,
+            width,
+            height,
+            capturedTargets,
+            filtered.Targets.Count,
+            startIndex,
+            maxTargets,
+            processedThisRun: 0,
+            skippedExistingCount,
+            nextStartIndex: startIndex,
+            stoppedReason: "started");
+
+        int processedThisRun = 0;
+        int lastProcessedSourceIndex = startIndex - 1;
+        string? stoppedReason = null;
+        var stopwatch = Stopwatch.StartNew();
+        try
+        {
+            foreach (var target in batchTargets)
+            {
+                if (HasExceededTimeBudget(stopwatch, maxDurationSeconds))
+                {
+                    stoppedReason = "time-budget";
+                    break;
+                }
+
+                var runtimeTarget = ResolveFilteredFeatureTreeTarget(target, activeDocument, assembly);
+                var captured = CaptureFilteredFeatureThreeViews(
+                    activeDocument,
+                    runtimeTarget,
+                    outputDirectory,
+                    width,
+                    height,
+                    capturePaddingFactor,
+                    maxTransparentFaces);
+                string capturedKey = CreateThreeViewTargetKey(captured);
+                if (capturedKeys.Add(capturedKey))
+                {
+                    capturedTargets.Add(captured);
+                }
+                else
+                {
+                    int existingIndex = capturedTargets.FindIndex(item =>
+                        string.Equals(CreateThreeViewTargetKey(item), capturedKey, StringComparison.OrdinalIgnoreCase));
+                    if (existingIndex >= 0)
+                    {
+                        capturedTargets[existingIndex] = captured;
+                    }
+                }
+
+                processedThisRun++;
+                lastProcessedSourceIndex = target.SourceIndex;
+                if (writeManifestAfterEachTarget)
+                {
+                    WriteFeatureThreeViewManifest(
+                        manifestPath,
+                        normalizedFilteredPath,
+                        outputDirectory,
+                        width,
+                        height,
+                        capturedTargets,
+                        filtered.Targets.Count,
+                        startIndex,
+                        maxTargets,
+                        processedThisRun,
+                        skippedExistingCount,
+                        CalculateNextStartIndex(startIndex, lastProcessedSourceIndex, processedThisRun, batchTargets.Count, filtered.Targets.Count),
+                        stoppedReason);
+                }
+            }
+        }
+        finally
+        {
+            activeDocument.ClearSelection2(true);
+            SafeGraphicsRedraw(activeDocument);
+        }
+
+        int nextStartIndex = CalculateNextStartIndex(startIndex, lastProcessedSourceIndex, processedThisRun, batchTargets.Count, filtered.Targets.Count);
+        string resolvedStoppedReason = stoppedReason ?? ResolveCaptureStopReason(processedThisRun, batchTargets.Count, nextStartIndex, filtered.Targets.Count);
+        return WriteFeatureThreeViewManifest(
+            manifestPath,
+            normalizedFilteredPath,
+            outputDirectory,
+            width,
+            height,
+            capturedTargets,
+            filtered.Targets.Count,
+            startIndex,
+            maxTargets,
+            processedThisRun,
+            skippedExistingCount,
+            nextStartIndex,
+            resolvedStoppedReason);
     }
 
     public AssemblyEntityAnnotationCaptureResult CaptureActiveAssemblyEntityAnnotationSet(
@@ -987,6 +1641,81 @@ public sealed class AssemblyEntityAnnotationService : IAssemblyEntityAnnotationS
         };
     }
 
+    public FeatureStructureAnnotationQueryResult SearchStructuralFeatureTargets(
+        string annotationPath,
+        string? direction = null,
+        string? query = null,
+        bool onlyStructural = true,
+        int maxResults = 20)
+    {
+        if (maxResults < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maxResults), maxResults, "maxResults must be at least 1.");
+        }
+
+        string? effectiveDirection = string.IsNullOrWhiteSpace(direction)
+            ? InferFeatureStructureDirectionFromQuery(query)
+            : direction;
+        var requestedDirection = NormalizeFeatureStructureDirection(effectiveDirection);
+        string? normalizedQuery = NormalizeQuery(query);
+        var annotationSet = LoadFeatureStructureAnnotationSet(annotationPath);
+
+        var scored = annotationSet.Entries
+            .Where(entry => !onlyStructural || entry.IsStructural)
+            .Select(entry => new
+            {
+                Entry = entry,
+                DirectionMatch = MatchFeatureStructureDirection(entry, requestedDirection),
+                QueryMatched = FeatureStructureQueryMatches(entry, normalizedQuery),
+                Score = ScoreFeatureStructureAnnotation(entry, requestedDirection, normalizedQuery),
+            })
+            .Where(item => requestedDirection.IsAll
+                || item.DirectionMatch.MatchedDirections.Count > 0
+                || item.DirectionMatch.MatchedGlobalAxisHints.Count > 0)
+            .Where(item => normalizedQuery == null
+                || item.QueryMatched
+                || item.DirectionMatch.MatchedDirections.Count > 0
+                || item.DirectionMatch.MatchedGlobalAxisHints.Count > 0)
+            .OrderByDescending(item => item.DirectionMatch.PrimaryMatched)
+            .ThenByDescending(item => item.DirectionMatch.MatchedGlobalAxisHints.Count)
+            .ThenByDescending(item => item.DirectionMatch.MatchedDirections.Count)
+            .ThenByDescending(item => string.Equals(
+                item.Entry.DimensionChangeIntent.EditRelevance,
+                "direct",
+                StringComparison.OrdinalIgnoreCase))
+            .ThenByDescending(item => item.Entry.DimensionChangeIntent.CanDriveOverallSizeChange)
+            .ThenByDescending(item => item.Score)
+            .ThenByDescending(item => item.Entry.Confidence ?? 0)
+            .ThenBy(item => item.Entry.SourceIndex)
+            .Take(maxResults)
+            .Select((item, rank) => new FeatureStructureAnnotationMatchInfo
+            {
+                Rank = rank,
+                SourceIndex = item.Entry.SourceIndex,
+                Score = item.Score,
+                PrimaryDirectionMatched = item.DirectionMatch.PrimaryMatched,
+                MatchedDirections = item.DirectionMatch.MatchedDirections,
+                MatchedGlobalAxisHints = item.DirectionMatch.MatchedGlobalAxisHints,
+                Annotation = item.Entry,
+            })
+            .ToList()
+            .AsReadOnly();
+
+        return new FeatureStructureAnnotationQueryResult
+        {
+            AnnotationPath = annotationSet.AnnotationPath,
+            Direction = requestedDirection.OriginalDirection,
+            RequestedGlobalAxisHint = requestedDirection.GlobalAxisHint,
+            RequestedDirectionLabels = requestedDirection.DirectionLabels,
+            Query = normalizedQuery,
+            OnlyStructural = onlyStructural,
+            TotalEntryCount = annotationSet.Entries.Count,
+            StructuralEntryCount = annotationSet.Entries.Count(entry => entry.IsStructural),
+            MatchCount = scored.Count,
+            Matches = scored,
+        };
+    }
+
     public AssemblyEntityHighlightResult HighlightAssemblyEntityAnnotationTarget(
         string manifestOrAnnotationPath,
         string targetId)
@@ -1105,6 +1834,152 @@ public sealed class AssemblyEntityAnnotationService : IAssemblyEntityAnnotationS
         };
     }
 
+    private FilteredFeatureRuntimeTarget ResolveFilteredFeatureTreeTarget(
+        SolidWorksFilteredFeatureTreeTarget target,
+        IModelDoc2 activeDocument,
+        IAssemblyDoc? assembly)
+    {
+        IComponent2? component = null;
+        IModelDoc2 document = activeDocument;
+        string? requestedDocumentPath = NormalizePathOrNull(target.DocumentPath)
+            ?? NormalizePathOrNull(target.ParentDocument?.Path);
+        string? requestedComponentPath = NormalizePathOrNull(target.ComponentPath)
+            ?? requestedDocumentPath;
+        if (!string.IsNullOrWhiteSpace(target.HierarchyPath) && assembly != null)
+        {
+            var instances = EnumerateComponentInstances(assembly);
+            var instance = instances
+                .FirstOrDefault(item => string.Equals(item.Info.HierarchyPath, target.HierarchyPath, StringComparison.OrdinalIgnoreCase));
+            instance ??= instances.FirstOrDefault(item =>
+                !string.IsNullOrWhiteSpace(requestedComponentPath)
+                && string.Equals(item.Info.Path, requestedComponentPath, StringComparison.OrdinalIgnoreCase));
+            instance ??= instances.FirstOrDefault(item =>
+                !string.IsNullOrWhiteSpace(requestedDocumentPath)
+                && string.Equals(item.Info.Path, requestedDocumentPath, StringComparison.OrdinalIgnoreCase));
+            if (instance != null)
+            {
+                component = instance.Component;
+                document = SafeGetComponentModelDoc(component) ?? document;
+            }
+        }
+
+        if (component == null && !string.IsNullOrWhiteSpace(requestedDocumentPath))
+        {
+            string? activePath = NormalizePathOrNull(SafeGetDocumentPath(activeDocument));
+            if (!string.Equals(activePath, requestedDocumentPath, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    $"Cannot resolve filtered feature target '{target.Name}' because its document path is not active and no matching assembly component was found. targetDocument={requestedDocumentPath}, activeDocument={activePath}");
+            }
+        }
+
+        var feature = FindFeatureByPath(document, target.FeaturePath);
+        if (feature == null)
+        {
+            throw new InvalidOperationException(
+                $"Could not resolve feature by FeaturePath='{target.FeaturePath}' for filtered target SourceIndex={target.SourceIndex}, Name='{target.Name}'.");
+        }
+
+        string featureName = SafeGetFeatureName(feature) ?? target.Name ?? $"feature_{target.SourceIndex}";
+        string? documentTitle = SafeGetDocumentTitle(document) ?? target.DocumentTitle;
+        string? documentPath = NormalizePathOrNull(SafeGetDocumentPath(document))
+            ?? requestedDocumentPath;
+        string? componentPath = component == null
+            ? null
+            : NormalizePathOrNull(SafeGetComponentPath(component));
+        var info = new AssemblyEntityCaptureTargetInfo
+        {
+            TargetId = string.IsNullOrWhiteSpace(target.NodeId)
+                ? CreateTargetId("feature", target.HierarchyPath, target.ComponentPath, documentPath, target.FeaturePath, null, featureName)
+                : target.NodeId!,
+            EntityKind = "feature",
+            DisplayName = target.GraphPath ?? featureName,
+            ComponentName = target.ComponentName,
+            ComponentPath = NormalizePathOrNull(target.ComponentPath) ?? componentPath,
+            HierarchyPath = target.HierarchyPath,
+            ComponentDepth = target.ComponentDepth,
+            DocumentTitle = documentTitle,
+            DocumentPath = documentPath,
+            FeatureName = featureName,
+            FeatureTypeName = SafeGetFeatureTypeName(feature) ?? target.FeatureTypeName,
+            FeaturePath = target.FeaturePath,
+            HasSubFeatures = target.HasSubFeatures,
+            GraphPath = target.GraphPath,
+        };
+
+        return new FilteredFeatureRuntimeTarget(new RuntimeTarget(info, feature, "feature"), target.SourceIndex);
+    }
+
+    private SolidWorksFeatureThreeViewTargetResult CaptureFilteredFeatureThreeViews(
+        IModelDoc2 modelDoc,
+        FilteredFeatureRuntimeTarget filteredTarget,
+        string outputDirectory,
+        int width,
+        int height,
+        double capturePaddingFactor,
+        int maxTransparentFaces)
+    {
+        var target = filteredTarget.Target;
+        string folderName = ToUniqueFeatureFolderName(
+            target.Info.FeatureName ?? target.Info.DisplayName,
+            target.Info.TargetId,
+            filteredTarget.SourceIndex.ToString(CultureInfo.InvariantCulture));
+        string targetDirectory = Path.Combine(outputDirectory, folderName);
+        Directory.CreateDirectory(targetDirectory);
+
+        var images = new List<SolidWorksFeatureThreeViewImageInfo>();
+        ClearTemporaryCaptureAppearance(modelDoc, target);
+        var selection = TrySelectRuntimeTarget(modelDoc, target);
+        using var highlightAppearance = ApplyTemporaryCaptureAppearance(modelDoc, target);
+        selection = selection with
+        {
+            Message = $"{selection.Message} Highlight appearance applied to {highlightAppearance.AppliedCount} object(s): {highlightAppearance.KindSummary}.",
+        };
+
+        try
+        {
+            foreach (var (view, viewName) in ThreeViews)
+            {
+                PrepareViewForEntityCapture(modelDoc, view, useCleanDisplayMode: false);
+                StabilizeCaptureView(modelDoc, capturePaddingFactor);
+                PrepareTemporaryAppearanceForBitmapExport(modelDoc);
+                string outputPath = Path.Combine(targetDirectory, $"{viewName}.png");
+                var image = ExportPreparedViewPng(modelDoc, outputPath, width, height);
+                images.Add(new SolidWorksFeatureThreeViewImageInfo
+                {
+                    Variant = "highlight",
+                    ViewName = viewName,
+                    OutputPath = image.OutputPath,
+                    Width = image.Width,
+                    Height = image.Height,
+                });
+            }
+
+            _ = maxTransparentFaces;
+        }
+        finally
+        {
+            ClearTemporaryCaptureAppearance(modelDoc, target);
+            modelDoc.ClearSelection2(true);
+        }
+
+        return new SolidWorksFeatureThreeViewTargetResult
+        {
+            SourceIndex = filteredTarget.SourceIndex,
+            NodeId = target.Info.TargetId,
+            Name = target.Info.FeatureName ?? target.Info.DisplayName,
+            FeatureTypeName = target.Info.FeatureTypeName,
+            FeaturePath = target.Info.FeaturePath,
+            GraphPath = target.Info.GraphPath,
+            DocumentTitle = target.Info.DocumentTitle,
+            DocumentPath = target.Info.DocumentPath,
+            HierarchyPath = target.Info.HierarchyPath,
+            OutputDirectory = targetDirectory,
+            Selection = selection,
+            Images = images.AsReadOnly(),
+        };
+    }
+
     private static void ValidateCaptureArguments(
         string outputDirectory,
         int width,
@@ -1149,6 +2024,829 @@ public sealed class AssemblyEntityAnnotationService : IAssemblyEntityAnnotationS
             throw new ArgumentOutOfRangeException(nameof(capturePaddingFactor), capturePaddingFactor, "capturePaddingFactor must be between 1 and 3.");
         }
     }
+
+    private static SolidWorksFeatureTreeDocumentInfo ExportFeatureTreeDocument(
+        IModelDoc2 document,
+        string role,
+        IComponent2? component,
+        ComponentInstanceInfo? componentInfo,
+        ISet<string> activeComponentStack,
+        bool expandManagementFeatureSubTrees,
+        bool expandFeatureSubTrees,
+        bool includeComponentFeatures,
+        bool includePartFeatures,
+        ISet<string> skippedFeatureDocuments,
+        bool skipImportedFeatureDocuments,
+        bool exportDuplicateSourceDocumentFeatures,
+        ISet<string> exportedFeatureSourceDocuments,
+        string progressPath,
+        string outputDirectory,
+        string featureTreePath,
+        string documentJournalPath,
+        bool includeChildren)
+    {
+        string? documentPath = NormalizePathOrNull(SafeGetDocumentPath(document));
+        string title = SafeGetDocumentTitle(document)
+            ?? componentInfo?.Name
+            ?? Path.GetFileName(documentPath ?? string.Empty)
+            ?? "<untitled>";
+        int documentType = SafeGetDocumentType(document);
+        string documentId = CreateFeatureTreeDocumentId(
+            role,
+            componentInfo?.HierarchyPath,
+            componentInfo?.Path,
+            documentPath,
+            title);
+        string rootGraphPath = string.IsNullOrWhiteSpace(componentInfo?.HierarchyPath)
+            ? "active document"
+            : componentInfo!.HierarchyPath;
+
+        bool isComponentDocument = role == "component";
+        bool isPartDocument = documentType == (int)swDocumentTypes_e.swDocPART;
+        bool isAssemblyDocument = documentType == (int)swDocumentTypes_e.swDocASSEMBLY;
+        bool isExplicitlySkipped = documentPath != null && skippedFeatureDocuments.Contains(documentPath);
+        bool isImportedFeatureDocument = skipImportedFeatureDocuments
+            && isComponentDocument
+            && IsImportedFeatureDocument(title, documentPath);
+        bool isDuplicateSourceFeatureDocument = false;
+        string? featureSourceDocumentKey = NormalizeFeatureSourceDocumentKey(documentPath);
+        if (isComponentDocument
+            && !exportDuplicateSourceDocumentFeatures
+            && featureSourceDocumentKey != null
+            && exportedFeatureSourceDocuments.Contains(featureSourceDocumentKey))
+        {
+            isDuplicateSourceFeatureDocument = true;
+        }
+
+        bool referenceFeaturesOnly = isComponentDocument
+            && isAssemblyDocument
+            && includeChildren
+            && !includeComponentFeatures
+            && !isExplicitlySkipped
+            && !isImportedFeatureDocument
+            && !isDuplicateSourceFeatureDocument;
+        bool skipFeatures = isComponentDocument
+            && !includeComponentFeatures
+            && !(includePartFeatures && isPartDocument)
+            && !referenceFeaturesOnly;
+        if (isExplicitlySkipped || isImportedFeatureDocument || isDuplicateSourceFeatureDocument)
+        {
+            skipFeatures = true;
+        }
+
+        string? skippedReason = isExplicitlySkipped
+            ? "Feature enumeration was skipped because this document path matched skipFeatureDocumentPaths."
+            : isImportedFeatureDocument
+                ? "Feature enumeration was skipped because this document looks like an imported STEP/neutral-format document."
+            : isDuplicateSourceFeatureDocument
+                ? "Feature enumeration was skipped because this source document's features were already exported for another component instance."
+            : referenceFeaturesOnly
+                ? "Child assembly feature enumeration is limited to Reference feature nodes so the recursive component feature tree can continue without exporting every child assembly management feature."
+            : skipFeatures
+                ? isPartDocument
+                    ? "Child part feature enumeration is disabled. Re-run with includePartFeatures=true to include child part feature nodes."
+                    : "Child assembly document feature enumeration is disabled by default. Re-run with includeComponentFeatures=true to include child assembly feature nodes."
+                : null;
+        IReadOnlyList<SolidWorksFeatureTreeFeatureNode> features = Array.Empty<SolidWorksFeatureTreeFeatureNode>();
+        if (!skipFeatures)
+        {
+            WriteFeatureTreeProgress(
+                progressPath,
+                new SolidWorksFeatureTreeExportProgress
+                {
+                    Stage = "document-features",
+                    Message = "Enumerating document FeatureManager features.",
+                    OutputDirectory = outputDirectory,
+                    FeatureTreePath = featureTreePath,
+                    DocumentJournalPath = documentJournalPath,
+                    CurrentDocumentTitle = title,
+                    CurrentDocumentPath = documentPath,
+                    CurrentComponentName = GetLocalComponentNameOrNull(componentInfo?.Name),
+                    CurrentHierarchyPath = componentInfo?.HierarchyPath,
+                });
+            features = EnumerateFeatureTreeNodes(
+                    document,
+                    component,
+                    documentId,
+                    title,
+                    documentPath,
+                    componentInfo,
+                    rootGraphPath,
+                    expandManagementFeatureSubTrees,
+                    expandFeatureSubTrees,
+                    includeComponentFeatures,
+                    includePartFeatures,
+                    includeChildren,
+                    referenceFeaturesOnly,
+                    activeComponentStack,
+                    skippedFeatureDocuments,
+                    skipImportedFeatureDocuments,
+                    exportDuplicateSourceDocumentFeatures,
+                    exportedFeatureSourceDocuments,
+                    progressPath,
+                    outputDirectory,
+                    featureTreePath,
+                    documentJournalPath)
+                .ToList()
+                .AsReadOnly();
+
+            WriteFeatureTreeProgress(
+                progressPath,
+                new SolidWorksFeatureTreeExportProgress
+                {
+                    Stage = "document-features-complete",
+                    Message = "Completed document feature enumeration.",
+                    OutputDirectory = outputDirectory,
+                    FeatureTreePath = featureTreePath,
+                    DocumentJournalPath = documentJournalPath,
+                    CurrentDocumentTitle = title,
+                    CurrentDocumentPath = documentPath,
+                    CurrentComponentName = GetLocalComponentNameOrNull(componentInfo?.Name),
+                    CurrentHierarchyPath = componentInfo?.HierarchyPath,
+                    FeatureCount = features.Sum(CountFeatureTreeFeatureNodes),
+                });
+            if (featureSourceDocumentKey != null)
+            {
+                exportedFeatureSourceDocuments.Add(featureSourceDocumentKey);
+            }
+        }
+        IReadOnlyList<SolidWorksFeatureTreeDocumentInfo> children = Array.Empty<SolidWorksFeatureTreeDocumentInfo>();
+        if (includeChildren && documentType == (int)swDocumentTypes_e.swDocASSEMBLY)
+        {
+            children = ExportAssemblyChildFeatureTreeDocuments(
+                document,
+                component,
+                componentInfo,
+                activeComponentStack,
+                expandManagementFeatureSubTrees,
+                expandFeatureSubTrees,
+                includeComponentFeatures,
+                includePartFeatures,
+                skippedFeatureDocuments,
+                skipImportedFeatureDocuments,
+                exportDuplicateSourceDocumentFeatures,
+                exportedFeatureSourceDocuments,
+                progressPath,
+                outputDirectory,
+                featureTreePath,
+                documentJournalPath);
+        }
+
+        var exportedDocument = new SolidWorksFeatureTreeDocumentInfo
+        {
+            DocumentId = documentId,
+            Role = role,
+            Title = title,
+            Path = documentPath,
+            Type = documentType,
+            TypeName = ToDocumentTypeName(documentType),
+            ComponentName = GetLocalComponentNameOrNull(componentInfo?.Name),
+            ComponentRawName = componentInfo?.Name,
+            ComponentPath = NormalizePathOrNull(componentInfo?.Path),
+            HierarchyPath = componentInfo?.HierarchyPath,
+            ComponentDepth = componentInfo?.Depth,
+            IsLoaded = true,
+            LoadStatus = "loaded",
+            FeaturesSkipped = skipFeatures,
+            FeaturesSkippedReason = skippedReason,
+            Features = features,
+            ComponentChildren = children,
+        };
+        AppendFeatureTreeDocumentJournalEntry(
+            documentJournalPath,
+            outputDirectory,
+            featureTreePath,
+            exportedDocument);
+        return exportedDocument;
+    }
+
+    private static IReadOnlyList<SolidWorksFeatureTreeDocumentInfo> ExportAssemblyChildFeatureTreeDocuments(
+        IModelDoc2 assemblyDocument,
+        IComponent2? owningComponent,
+        ComponentInstanceInfo? owningComponentInfo,
+        ISet<string> activeComponentStack,
+        bool expandManagementFeatureSubTrees,
+        bool expandFeatureSubTrees,
+        bool includeComponentFeatures,
+        bool includePartFeatures,
+        ISet<string> skippedFeatureDocuments,
+        bool skipImportedFeatureDocuments,
+        bool exportDuplicateSourceDocumentFeatures,
+        ISet<string> exportedFeatureSourceDocuments,
+        string progressPath,
+        string outputDirectory,
+        string featureTreePath,
+        string documentJournalPath)
+    {
+        WriteFeatureTreeProgress(
+            progressPath,
+            new SolidWorksFeatureTreeExportProgress
+            {
+                Stage = "assembly-components",
+                Message = "Enumerating assembly child components.",
+                OutputDirectory = outputDirectory,
+                FeatureTreePath = featureTreePath,
+                DocumentJournalPath = documentJournalPath,
+                CurrentDocumentTitle = SafeGetDocumentTitle(assemblyDocument),
+                CurrentDocumentPath = NormalizePathOrNull(SafeGetDocumentPath(assemblyDocument)),
+                CurrentComponentName = GetLocalComponentNameOrNull(owningComponentInfo?.Name),
+                CurrentHierarchyPath = owningComponentInfo?.HierarchyPath,
+            });
+        var children = GetAssemblyChildComponents(assemblyDocument, owningComponent);
+        var results = new List<SolidWorksFeatureTreeDocumentInfo>();
+        foreach (var child in children.OfType<IComponent2>())
+        {
+            string rawChildName = SafeGetComponentName(child) ?? "Component";
+            string childName = GetLocalComponentName(rawChildName);
+            string childPath = NormalizePathOrNull(SafeGetComponentPath(child)) ?? string.Empty;
+            string hierarchyPath = string.IsNullOrWhiteSpace(owningComponentInfo?.HierarchyPath)
+                ? childName
+                : $"{owningComponentInfo!.HierarchyPath}/{childName}";
+            var childInfo = new ComponentInstanceInfo(
+                rawChildName,
+                childPath,
+                hierarchyPath,
+                (owningComponentInfo?.Depth ?? -1) + 1);
+            WriteFeatureTreeProgress(
+                progressPath,
+                new SolidWorksFeatureTreeExportProgress
+                {
+                    Stage = "component",
+                    Message = "Resolving component document.",
+                    OutputDirectory = outputDirectory,
+                    FeatureTreePath = featureTreePath,
+                    DocumentJournalPath = documentJournalPath,
+                    CurrentComponentName = GetLocalComponentName(childInfo.Name),
+                    CurrentHierarchyPath = childInfo.HierarchyPath,
+                    CurrentDocumentPath = NormalizePathOrNull(childInfo.Path),
+                    DocumentCount = results.Count,
+                });
+            string stackKey = string.Join("|", childInfo.HierarchyPath, childInfo.Path);
+            if (!activeComponentStack.Add(stackKey))
+            {
+                var cycleDocument = CreateUnloadedFeatureTreeDocument(
+                    childInfo,
+                    "component recursion cycle detected; child traversal skipped");
+                AppendFeatureTreeDocumentJournalEntry(
+                    documentJournalPath,
+                    outputDirectory,
+                    featureTreePath,
+                    cycleDocument);
+                results.Add(cycleDocument);
+                continue;
+            }
+
+            try
+            {
+                string? preResolveSkipReason = GetPreResolveFeatureDocumentSkipReason(
+                    childName,
+                    childInfo.Path,
+                    skippedFeatureDocuments,
+                    skipImportedFeatureDocuments,
+                    exportDuplicateSourceDocumentFeatures,
+                    exportedFeatureSourceDocuments);
+                if (preResolveSkipReason != null)
+                {
+                    var skippedDocument = CreateSkippedFeatureTreeDocument(
+                        childInfo,
+                        preResolveSkipReason);
+                    AppendFeatureTreeDocumentJournalEntry(
+                        documentJournalPath,
+                        outputDirectory,
+                        featureTreePath,
+                        skippedDocument);
+                    results.Add(skippedDocument);
+                    continue;
+                }
+
+                var childDocument = SafeGetComponentModelDoc(child);
+                if (childDocument == null)
+                {
+                    var unloadedDocument = CreateUnloadedFeatureTreeDocument(
+                        childInfo,
+                        "component document is not loaded or resolved");
+                    AppendFeatureTreeDocumentJournalEntry(
+                        documentJournalPath,
+                        outputDirectory,
+                        featureTreePath,
+                        unloadedDocument);
+                    results.Add(unloadedDocument);
+                    continue;
+                }
+
+                results.Add(ExportFeatureTreeDocument(
+                    childDocument,
+                    role: "component",
+                    child,
+                    childInfo,
+                    activeComponentStack,
+                    expandManagementFeatureSubTrees,
+                    expandFeatureSubTrees,
+                    includeComponentFeatures,
+                    includePartFeatures,
+                    skippedFeatureDocuments,
+                    skipImportedFeatureDocuments,
+                    exportDuplicateSourceDocumentFeatures,
+                    exportedFeatureSourceDocuments,
+                    progressPath,
+                    outputDirectory,
+                    featureTreePath,
+                    documentJournalPath,
+                    includeChildren: true));
+            }
+            finally
+            {
+                activeComponentStack.Remove(stackKey);
+            }
+        }
+
+        return results.AsReadOnly();
+    }
+
+    private static SolidWorksFeatureTreeDocumentInfo CreateUnloadedFeatureTreeDocument(
+        ComponentInstanceInfo componentInfo,
+        string loadStatus)
+    {
+        string? componentPath = NormalizePathOrNull(componentInfo.Path);
+        return new SolidWorksFeatureTreeDocumentInfo
+        {
+            DocumentId = CreateFeatureTreeDocumentId(
+                "component",
+                componentInfo.HierarchyPath,
+                componentPath,
+                componentPath,
+                componentInfo.Name),
+            Role = "component",
+            Title = componentInfo.Name,
+            Path = componentPath,
+            Type = 0,
+            TypeName = "Unknown",
+            ComponentName = GetLocalComponentName(componentInfo.Name),
+            ComponentRawName = componentInfo.Name,
+            ComponentPath = componentPath,
+            HierarchyPath = componentInfo.HierarchyPath,
+            ComponentDepth = componentInfo.Depth,
+            IsLoaded = false,
+            LoadStatus = loadStatus,
+            Features = Array.Empty<SolidWorksFeatureTreeFeatureNode>(),
+            ComponentChildren = Array.Empty<SolidWorksFeatureTreeDocumentInfo>(),
+        };
+    }
+
+    private static SolidWorksFeatureTreeDocumentInfo CreateSkippedFeatureTreeDocument(
+        ComponentInstanceInfo componentInfo,
+        string skippedReason)
+    {
+        string? componentPath = NormalizePathOrNull(componentInfo.Path);
+        return new SolidWorksFeatureTreeDocumentInfo
+        {
+            DocumentId = CreateFeatureTreeDocumentId(
+                "component",
+                componentInfo.HierarchyPath,
+                componentPath,
+                componentPath,
+                componentInfo.Name),
+            Role = "component",
+            Title = componentInfo.Name,
+            Path = componentPath,
+            Type = 0,
+            TypeName = "Unknown",
+            ComponentName = GetLocalComponentName(componentInfo.Name),
+            ComponentRawName = componentInfo.Name,
+            ComponentPath = componentPath,
+            HierarchyPath = componentInfo.HierarchyPath,
+            ComponentDepth = componentInfo.Depth,
+            IsLoaded = true,
+            LoadStatus = "feature enumeration skipped",
+            FeaturesSkipped = true,
+            FeaturesSkippedReason = skippedReason,
+            Features = Array.Empty<SolidWorksFeatureTreeFeatureNode>(),
+            ComponentChildren = Array.Empty<SolidWorksFeatureTreeDocumentInfo>(),
+        };
+    }
+
+    private static object[] GetAssemblyChildComponents(IModelDoc2 assemblyDocument, IComponent2? owningComponent)
+    {
+        var componentChildren = owningComponent == null
+            ? Array.Empty<object>()
+            : SafeGetComponentChildren(owningComponent);
+        if (componentChildren.Length > 0)
+        {
+            return componentChildren;
+        }
+
+        if (assemblyDocument is not IAssemblyDoc assembly)
+        {
+            return Array.Empty<object>();
+        }
+
+        return SafeGetAssemblyTopLevelComponents(assembly);
+    }
+
+    private static object[] SafeGetAssemblyTopLevelComponents(IAssemblyDoc assembly)
+    {
+        try
+        {
+            var topLevel = assembly.GetComponents(false) as object[] ?? [];
+            return topLevel.Length > 0
+                ? topLevel
+                : assembly.GetComponents(true) as object[] ?? [];
+        }
+        catch (COMException)
+        {
+            return [];
+        }
+    }
+
+    private static IEnumerable<SolidWorksFeatureTreeFeatureNode> EnumerateFeatureTreeNodes(
+        IModelDoc2 document,
+        IComponent2? owningComponent,
+        string documentId,
+        string documentTitle,
+        string? documentPath,
+        ComponentInstanceInfo? componentInfo,
+        string rootGraphPath,
+        bool expandManagementFeatureSubTrees,
+        bool expandFeatureSubTrees,
+        bool includeComponentFeatures,
+        bool includePartFeatures,
+        bool includeChildren,
+        bool referenceFeaturesOnly,
+        ISet<string> activeComponentStack,
+        ISet<string> skippedFeatureDocuments,
+        bool skipImportedFeatureDocuments,
+        bool exportDuplicateSourceDocumentFeatures,
+        ISet<string> exportedFeatureSourceDocuments,
+        string progressPath,
+        string outputDirectory,
+        string featureTreePath,
+        string documentJournalPath)
+    {
+        int index = 0;
+        var visited = new HashSet<Feature>();
+        for (var feature = SafeGetFirstFeature(document); feature != null && visited.Add(feature); feature = SafeGetNextFeature(feature))
+        {
+            if (referenceFeaturesOnly && !IsReferenceFeature(feature))
+            {
+                continue;
+            }
+
+            yield return CreateFeatureTreeNode(
+                feature,
+                document,
+                owningComponent,
+                documentId,
+                documentTitle,
+                documentPath,
+                componentInfo,
+                rootGraphPath,
+                expandManagementFeatureSubTrees,
+                expandFeatureSubTrees,
+                includeComponentFeatures,
+                includePartFeatures,
+                includeChildren,
+                referenceFeaturesOnly,
+                activeComponentStack,
+                skippedFeatureDocuments,
+                skipImportedFeatureDocuments,
+                exportDuplicateSourceDocumentFeatures,
+                exportedFeatureSourceDocuments,
+                progressPath,
+                outputDirectory,
+                featureTreePath,
+                documentJournalPath,
+                parentFeaturePath: null,
+                depth: 0,
+                siblingIndex: index);
+            index++;
+        }
+    }
+
+    private static SolidWorksFeatureTreeFeatureNode CreateFeatureTreeNode(
+        Feature feature,
+        IModelDoc2 document,
+        IComponent2? owningComponent,
+        string documentId,
+        string documentTitle,
+        string? documentPath,
+        ComponentInstanceInfo? componentInfo,
+        string rootGraphPath,
+        bool expandManagementFeatureSubTrees,
+        bool expandFeatureSubTrees,
+        bool includeComponentFeatures,
+        bool includePartFeatures,
+        bool includeChildren,
+        bool referenceFeaturesOnly,
+        ISet<string> activeComponentStack,
+        ISet<string> skippedFeatureDocuments,
+        bool skipImportedFeatureDocuments,
+        bool exportDuplicateSourceDocumentFeatures,
+        ISet<string> exportedFeatureSourceDocuments,
+        string progressPath,
+        string outputDirectory,
+        string featureTreePath,
+        string documentJournalPath,
+        string? parentFeaturePath,
+        int depth,
+        int siblingIndex)
+    {
+        string featureName = SafeGetFeatureName(feature) ?? $"Feature{siblingIndex + 1}";
+        string? featureTypeName = SafeGetFeatureTypeName(feature);
+        string featurePath = string.IsNullOrWhiteSpace(parentFeaturePath)
+            ? $"{siblingIndex}:{featureName}"
+            : $"{parentFeaturePath}/{siblingIndex}:{featureName}";
+        string graphPath = $"{rootGraphPath}/{featurePath}";
+        var firstChild = SafeGetFirstSubFeature(feature);
+        bool hasSubFeatures = firstChild != null;
+        bool isManagementFeature = IsManagementFeatureName(featureName) || IsManagementFeatureType(featureTypeName ?? string.Empty);
+        bool omitSubFeatures = hasSubFeatures
+            && (!expandFeatureSubTrees || (!expandManagementFeatureSubTrees && isManagementFeature));
+        IReadOnlyList<SolidWorksFeatureTreeFeatureNode> childFeatures = omitSubFeatures
+            ? Array.Empty<SolidWorksFeatureTreeFeatureNode>()
+            : EnumerateSubFeatureTreeNodes(
+                    firstChild,
+                    document,
+                    owningComponent,
+                    documentId,
+                    documentTitle,
+                    documentPath,
+                    componentInfo,
+                    rootGraphPath,
+                    expandManagementFeatureSubTrees,
+                    expandFeatureSubTrees,
+                    includeComponentFeatures,
+                    includePartFeatures,
+                    includeChildren,
+                    referenceFeaturesOnly,
+                    activeComponentStack,
+                    skippedFeatureDocuments,
+                    skipImportedFeatureDocuments,
+                    exportDuplicateSourceDocumentFeatures,
+                    exportedFeatureSourceDocuments,
+                    progressPath,
+                    outputDirectory,
+                    featureTreePath,
+                    documentJournalPath,
+                    featurePath,
+                    depth + 1)
+                .ToList()
+                .AsReadOnly();
+        return new SolidWorksFeatureTreeFeatureNode
+        {
+            NodeId = CreateTargetId(
+                "feature",
+                componentInfo?.HierarchyPath,
+                componentInfo?.Path,
+                documentPath,
+                featurePath,
+                null,
+                featureName),
+            EntityKind = "feature",
+            Name = featureName,
+            FeatureTypeName = featureTypeName,
+            FeaturePath = featurePath,
+            GraphPath = graphPath,
+            HasSubFeatures = hasSubFeatures,
+            SubFeaturesOmitted = omitSubFeatures,
+            SubFeaturesOmittedReason = omitSubFeatures
+                ? (isManagementFeature
+                    ? "Management FeatureManager folder subfeatures are not expanded by default; child part/subassembly feature trees are exported through component documents."
+                    : "Feature subtrees are not expanded by default; HasSubFeatures records whether this feature has children.")
+                : null,
+            Depth = depth,
+            SiblingIndex = siblingIndex,
+            DocumentId = documentId,
+            DocumentTitle = documentTitle,
+            DocumentPath = documentPath,
+            ComponentName = GetLocalComponentNameOrNull(componentInfo?.Name),
+            ComponentRawName = componentInfo?.Name,
+            ComponentPath = NormalizePathOrNull(componentInfo?.Path),
+            HierarchyPath = componentInfo?.HierarchyPath,
+            ComponentDepth = componentInfo?.Depth,
+            FeatureChildren = childFeatures,
+            ReferenceDocumentChildren = Array.Empty<SolidWorksFeatureTreeDocumentInfo>(),
+        };
+    }
+
+    private static IReadOnlyList<SolidWorksFeatureTreeDocumentInfo> ExportReferenceFeatureDocumentChildren(
+        Feature feature,
+        IModelDoc2 document,
+        IComponent2? owningComponent,
+        string? featureTypeName,
+        ComponentInstanceInfo? parentComponentInfo,
+        ISet<string> activeComponentStack,
+        bool expandManagementFeatureSubTrees,
+        bool expandFeatureSubTrees,
+        bool includeComponentFeatures,
+        bool includePartFeatures,
+        ISet<string> skippedFeatureDocuments,
+        bool skipImportedFeatureDocuments,
+        bool exportDuplicateSourceDocumentFeatures,
+        ISet<string> exportedFeatureSourceDocuments,
+        string progressPath,
+        string outputDirectory,
+        string featureTreePath,
+        string documentJournalPath)
+    {
+        if (!IsReferenceFeatureType(featureTypeName))
+        {
+            return Array.Empty<SolidWorksFeatureTreeDocumentInfo>();
+        }
+
+        string featureName = SafeGetFeatureName(feature) ?? string.Empty;
+        var component = SafeGetFeatureSpecificComponent(feature)
+            ?? FindReferenceFeatureComponent(document, owningComponent, featureName);
+        if (component == null)
+        {
+            return Array.Empty<SolidWorksFeatureTreeDocumentInfo>();
+        }
+
+        string rawChildName = SafeGetComponentName(component) ?? featureName ?? "Component";
+        string childName = GetLocalComponentName(rawChildName);
+        string childPath = NormalizePathOrNull(SafeGetComponentPath(component)) ?? string.Empty;
+        string hierarchyPath = string.IsNullOrWhiteSpace(parentComponentInfo?.HierarchyPath)
+            ? childName
+            : $"{parentComponentInfo!.HierarchyPath}/{childName}";
+        var childInfo = new ComponentInstanceInfo(
+            rawChildName,
+            childPath,
+            hierarchyPath,
+            (parentComponentInfo?.Depth ?? -1) + 1);
+        string stackKey = string.Join("|", childInfo.HierarchyPath, childInfo.Path);
+        if (!activeComponentStack.Add(stackKey))
+        {
+            var cycleDocument = CreateUnloadedFeatureTreeDocument(
+                childInfo,
+                "component recursion cycle detected; child traversal skipped");
+            AppendFeatureTreeDocumentJournalEntry(
+                documentJournalPath,
+                outputDirectory,
+                featureTreePath,
+                cycleDocument);
+            return new[] { cycleDocument };
+        }
+
+        try
+        {
+            WriteFeatureTreeProgress(
+                progressPath,
+                new SolidWorksFeatureTreeExportProgress
+                {
+                    Stage = "reference-component",
+                    Message = "Resolving Reference feature component document.",
+                    OutputDirectory = outputDirectory,
+                    FeatureTreePath = featureTreePath,
+                    DocumentJournalPath = documentJournalPath,
+                    CurrentComponentName = childName,
+                    CurrentHierarchyPath = childInfo.HierarchyPath,
+                    CurrentDocumentPath = NormalizePathOrNull(childInfo.Path),
+                });
+            string? preResolveSkipReason = GetPreResolveFeatureDocumentSkipReason(
+                childName,
+                childInfo.Path,
+                skippedFeatureDocuments,
+                skipImportedFeatureDocuments,
+                exportDuplicateSourceDocumentFeatures,
+                exportedFeatureSourceDocuments);
+            if (preResolveSkipReason != null)
+            {
+                var skippedDocument = CreateSkippedFeatureTreeDocument(
+                    childInfo,
+                    preResolveSkipReason);
+                AppendFeatureTreeDocumentJournalEntry(
+                    documentJournalPath,
+                    outputDirectory,
+                    featureTreePath,
+                    skippedDocument);
+                return new[] { skippedDocument };
+            }
+
+            var childDocument = SafeGetComponentModelDoc(component);
+            if (childDocument == null)
+            {
+                var unloadedDocument = CreateUnloadedFeatureTreeDocument(
+                    childInfo,
+                    "component document is not loaded or resolved");
+                AppendFeatureTreeDocumentJournalEntry(
+                    documentJournalPath,
+                    outputDirectory,
+                    featureTreePath,
+                    unloadedDocument);
+                return new[] { unloadedDocument };
+            }
+
+            return new[]
+            {
+                ExportFeatureTreeDocument(
+                    childDocument,
+                    role: "component",
+                    component,
+                    childInfo,
+                    activeComponentStack,
+                    expandManagementFeatureSubTrees,
+                    expandFeatureSubTrees,
+                    includeComponentFeatures,
+                    includePartFeatures,
+                    skippedFeatureDocuments,
+                    skipImportedFeatureDocuments,
+                    exportDuplicateSourceDocumentFeatures,
+                    exportedFeatureSourceDocuments,
+                    progressPath,
+                    outputDirectory,
+                    featureTreePath,
+                    documentJournalPath,
+                    includeChildren: true),
+            };
+        }
+        finally
+        {
+            activeComponentStack.Remove(stackKey);
+        }
+    }
+
+    private static IEnumerable<SolidWorksFeatureTreeFeatureNode> EnumerateSubFeatureTreeNodes(
+        Feature? firstChild,
+        IModelDoc2 document,
+        IComponent2? owningComponent,
+        string documentId,
+        string documentTitle,
+        string? documentPath,
+        ComponentInstanceInfo? componentInfo,
+        string rootGraphPath,
+        bool expandManagementFeatureSubTrees,
+        bool expandFeatureSubTrees,
+        bool includeComponentFeatures,
+        bool includePartFeatures,
+        bool includeChildren,
+        bool referenceFeaturesOnly,
+        ISet<string> activeComponentStack,
+        ISet<string> skippedFeatureDocuments,
+        bool skipImportedFeatureDocuments,
+        bool exportDuplicateSourceDocumentFeatures,
+        ISet<string> exportedFeatureSourceDocuments,
+        string progressPath,
+        string outputDirectory,
+        string featureTreePath,
+        string documentJournalPath,
+        string parentFeaturePath,
+        int depth)
+    {
+        int index = 0;
+        var visited = new HashSet<Feature>();
+        for (var child = firstChild; child != null && visited.Add(child); child = SafeGetNextSubFeature(child))
+        {
+            yield return CreateFeatureTreeNode(
+                child,
+                document,
+                owningComponent,
+                documentId,
+                documentTitle,
+                documentPath,
+                componentInfo,
+                rootGraphPath,
+                expandManagementFeatureSubTrees,
+                expandFeatureSubTrees,
+                includeComponentFeatures,
+                includePartFeatures,
+                includeChildren,
+                referenceFeaturesOnly,
+                activeComponentStack,
+                skippedFeatureDocuments,
+                skipImportedFeatureDocuments,
+                exportDuplicateSourceDocumentFeatures,
+                exportedFeatureSourceDocuments,
+                progressPath,
+                outputDirectory,
+                featureTreePath,
+                documentJournalPath,
+                parentFeaturePath,
+                depth,
+                index);
+            index++;
+        }
+    }
+
+    private static bool HasReferenceDocumentChildren(SolidWorksFeatureTreeFeatureNode node)
+        => node.ReferenceDocumentChildren.Count > 0
+            || node.FeatureChildren.Any(HasReferenceDocumentChildren);
+
+    private static int CountFeatureTreeDocuments(SolidWorksFeatureTreeDocumentInfo document)
+        => 1
+            + document.ComponentChildren.Sum(CountFeatureTreeDocuments)
+            + document.Features.Sum(CountFeatureTreeDocuments);
+
+    private static int CountFeatureTreeFeatures(SolidWorksFeatureTreeDocumentInfo document)
+        => document.Features.Sum(CountFeatureTreeFeatureNodes)
+            + document.ComponentChildren.Sum(CountFeatureTreeFeatures);
+
+    private static int CountFeatureTreeFeatureNodes(SolidWorksFeatureTreeFeatureNode node)
+        => 1
+            + node.FeatureChildren.Sum(CountFeatureTreeFeatureNodes)
+            + node.ReferenceDocumentChildren.Sum(CountFeatureTreeFeatures);
+
+    private static int CountFeatureTreeDocuments(SolidWorksFeatureTreeFeatureNode node)
+        => node.ReferenceDocumentChildren.Sum(CountFeatureTreeDocuments)
+            + node.FeatureChildren.Sum(CountFeatureTreeDocuments);
 
     private IReadOnlyList<RuntimeTarget> BuildRuntimeTargetList(
         IModelDoc2 modelDoc,
@@ -1428,6 +3126,44 @@ public sealed class AssemblyEntityAnnotationService : IAssemblyEntityAnnotationS
         return result;
     }
 
+    private static SolidWorksFeatureThreeViewCaptureResult WriteFeatureThreeViewManifest(
+        string manifestPath,
+        string filteredFeatureTreePath,
+        string outputDirectory,
+        int width,
+        int height,
+        IReadOnlyList<SolidWorksFeatureThreeViewTargetResult> capturedTargets,
+        int totalTargetCount,
+        int startIndex,
+        int maxTargets,
+        int processedThisRun,
+        int skippedExistingCount,
+        int nextStartIndex,
+        string? stoppedReason)
+    {
+        var result = new SolidWorksFeatureThreeViewCaptureResult
+        {
+            SchemaVersion = FeatureThreeViewSchemaVersion,
+            CreatedUtc = DateTime.UtcNow,
+            FilteredFeatureTreePath = filteredFeatureTreePath,
+            OutputDirectory = outputDirectory,
+            ManifestPath = manifestPath,
+            Width = width,
+            Height = height,
+            TargetCount = capturedTargets.Count,
+            TotalTargetCount = totalTargetCount,
+            StartIndex = startIndex,
+            MaxTargets = maxTargets,
+            ProcessedThisRun = processedThisRun,
+            SkippedExistingCount = skippedExistingCount,
+            NextStartIndex = nextStartIndex,
+            StoppedReason = stoppedReason,
+            Targets = capturedTargets.ToList().AsReadOnly(),
+        };
+        WriteJson(manifestPath, result);
+        return result;
+    }
+
     private static bool HasExceededTimeBudget(Stopwatch stopwatch, int maxDurationSeconds)
         => maxDurationSeconds > 0 && stopwatch.Elapsed >= TimeSpan.FromSeconds(maxDurationSeconds);
 
@@ -1558,6 +3294,189 @@ public sealed class AssemblyEntityAnnotationService : IAssemblyEntityAnnotationS
         return new TemporaryAppearanceOverride(modelDoc, snapshots);
     }
 
+    private static int ClearTemporaryCaptureAppearance(
+        IModelDoc2 modelDoc,
+        RuntimeTarget? target = null,
+        bool scanWholeModel = false)
+    {
+        var seen = new HashSet<int>();
+        int cleared = 0;
+
+        if (target != null)
+        {
+            foreach (var candidate in EnumerateCaptureAppearanceTargets(target))
+            {
+                if (seen.Add(RuntimeHelpers.GetHashCode(candidate.Target))
+                    && TryClearTemporaryCaptureMaterial(candidate.Target, candidate.Kind))
+                {
+                    cleared++;
+                }
+            }
+        }
+
+        if (scanWholeModel)
+        {
+            foreach (var body in EnumerateModelBodies(modelDoc))
+            {
+                if (seen.Add(RuntimeHelpers.GetHashCode(body))
+                    && TryClearTemporaryCaptureMaterial(body, "body"))
+                {
+                    cleared++;
+                }
+
+                foreach (var face in EnumerateBodyFaces(body))
+                {
+                    if (seen.Add(RuntimeHelpers.GetHashCode(face))
+                        && TryClearTemporaryCaptureMaterial(face, "face"))
+                    {
+                        cleared++;
+                    }
+                }
+            }
+        }
+
+        if (cleared > 0)
+        {
+            SafeGraphicsRedraw(modelDoc);
+            SafeActivateAndRepaintView(modelDoc);
+        }
+
+        return cleared;
+    }
+
+    private static bool TryClearTemporaryCaptureMaterial(object target, string kind)
+    {
+        try
+        {
+            object? values = TryGetMaterialValues(target, kind);
+            if (!IsTemporaryCaptureMaterial(values))
+            {
+                return false;
+            }
+
+            RemoveMaterialValues(target, kind);
+            return true;
+        }
+        catch (COMException)
+        {
+            return false;
+        }
+        catch (TargetInvocationException)
+        {
+            return false;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    private static TemporaryAppearanceOverride ApplyTransparentContextAppearance(
+        IModelDoc2 modelDoc,
+        RuntimeTarget target,
+        int maxTransparentFaces)
+    {
+        var snapshots = new List<MaterialSnapshot>();
+        if (maxTransparentFaces <= 0)
+        {
+            return new TemporaryAppearanceOverride(modelDoc, snapshots);
+        }
+
+        int limit = maxTransparentFaces;
+        var highlightedFaceIds = EnumerateCaptureAppearanceTargets(target)
+            .Where(item => item.Target is IFace2)
+            .Select(item => RuntimeHelpers.GetHashCode(item.Target))
+            .ToHashSet();
+        var candidates = EnumerateModelFaces(modelDoc)
+            .Where(face => !highlightedFaceIds.Contains(RuntimeHelpers.GetHashCode(face)))
+            .DistinctBy(RuntimeHelpers.GetHashCode)
+            .Take(limit)
+            .ToList();
+
+        foreach (var face in candidates)
+        {
+            if (TryApplyMaterial(face, "transparent-face", TransparentContextMaterial, out var snapshot))
+            {
+                snapshots.Add(snapshot);
+            }
+        }
+
+        SafeGraphicsRedraw(modelDoc);
+        return new TemporaryAppearanceOverride(modelDoc, snapshots);
+    }
+
+    private static IEnumerable<IFace2> EnumerateModelFaces(IModelDoc2 modelDoc)
+    {
+        foreach (var body in EnumerateModelBodies(modelDoc))
+        {
+            foreach (var face in EnumerateBodyFaces(body))
+            {
+                yield return face;
+            }
+        }
+    }
+
+    private static IEnumerable<IBody2> EnumerateModelBodies(IModelDoc2 modelDoc)
+    {
+        int documentType = SafeGetDocumentType(modelDoc);
+        if (documentType == (int)swDocumentTypes_e.swDocASSEMBLY && modelDoc is IAssemblyDoc assembly)
+        {
+            foreach (var instance in EnumerateComponentInstances(assembly))
+            {
+                foreach (var body in GetBodies(instance.Component))
+                {
+                    yield return body;
+                }
+            }
+
+            yield break;
+        }
+
+        foreach (var body in EnumeratePartBodies(modelDoc))
+        {
+            yield return body;
+        }
+    }
+
+    private static IEnumerable<IBody2> EnumeratePartBodies(IModelDoc2 modelDoc)
+    {
+        try
+        {
+            return (((object)modelDoc).GetType().InvokeMember(
+                    "GetBodies2",
+                    BindingFlags.InvokeMethod,
+                    binder: null,
+                    target: modelDoc,
+                    args: [(int)swBodyType_e.swSolidBody, true]) as object[] ?? [])
+                .OfType<IBody2>();
+        }
+        catch (MissingMethodException)
+        {
+            return [];
+        }
+        catch (COMException)
+        {
+            return [];
+        }
+        catch (TargetInvocationException)
+        {
+            return [];
+        }
+    }
+
+    private static IEnumerable<IFace2> EnumerateBodyFaces(IBody2 body)
+    {
+        try
+        {
+            return (body.GetFaces() as object[] ?? [])
+                .OfType<IFace2>();
+        }
+        catch (COMException)
+        {
+            return [];
+        }
+    }
+
     private static IEnumerable<(object Target, string Kind)> EnumerateCaptureAppearanceTargets(RuntimeTarget target)
     {
         if (target.SelectionObject is Feature feature)
@@ -1601,6 +3520,9 @@ public sealed class AssemblyEntityAnnotationService : IAssemblyEntityAnnotationS
         => SafeInvokeCom<object>(feature, "GetBody") as IBody2;
 
     private static bool TryApplyCaptureMaterial(object target, string kind, out MaterialSnapshot snapshot)
+        => TryApplyMaterial(target, kind, CaptureHighlightMaterial, out snapshot);
+
+    private static bool TryApplyMaterial(object target, string kind, double[] material, out MaterialSnapshot snapshot)
     {
         object? originalValues = TryGetMaterialValues(target, kind);
         bool hadMaterial = HasMaterialValues(target, kind, originalValues);
@@ -1611,16 +3533,16 @@ public sealed class AssemblyEntityAnnotationService : IAssemblyEntityAnnotationS
             switch (target)
             {
                 case IFace2 face:
-                    face.SetMaterialPropertyValues2(CaptureHighlightMaterial.ToArray(), MaterialConfigurationOption, null);
+                    face.SetMaterialPropertyValues2(material.ToArray(), MaterialConfigurationOption, null);
                     return true;
                 case IBody2 body:
-                    body.MaterialPropertyValues2 = CaptureHighlightMaterial.ToArray();
+                    body.MaterialPropertyValues2 = material.ToArray();
                     return true;
                 case Feature feature:
-                    feature.SetMaterialPropertyValues2(CaptureHighlightMaterial.ToArray(), MaterialConfigurationOption, null);
+                    feature.SetMaterialPropertyValues2(material.ToArray(), MaterialConfigurationOption, null);
                     return true;
                 default:
-                    return TrySetMaterialValuesByReflection(target, CaptureHighlightMaterial.ToArray());
+                    return TrySetMaterialValuesByReflection(target, material.ToArray());
             }
         }
         catch (COMException)
@@ -1787,6 +3709,29 @@ public sealed class AssemblyEntityAnnotationService : IAssemblyEntityAnnotationS
             Array array => array.Cast<object?>().ToArray(),
             _ => values,
         };
+    }
+
+    private static bool IsTemporaryCaptureMaterial(object? values)
+        => MaterialValuesMatch(values, CaptureHighlightMaterial)
+            || MaterialValuesMatch(values, TransparentContextMaterial);
+
+    private static bool MaterialValuesMatch(object? values, double[] expected)
+    {
+        var actual = ToDoubleArray(values);
+        if (actual == null || actual.Length < expected.Length)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < expected.Length; i++)
+        {
+            if (Math.Abs(actual[i] - expected[i]) > 0.000001)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static object[] ToObjectArray(object? value)
@@ -3097,6 +5042,369 @@ public sealed class AssemblyEntityAnnotationService : IAssemblyEntityAnnotationS
         }.Where(value => !string.IsNullOrWhiteSpace(value)));
     }
 
+    private sealed record FeatureStructureDirectionRequest(
+        string? OriginalDirection,
+        string? GlobalAxisHint,
+        IReadOnlyList<string> DirectionLabels)
+    {
+        public bool IsAll => GlobalAxisHint == null && DirectionLabels.Count == 0;
+    }
+
+    private sealed record FeatureStructureDirectionMatch(
+        bool PrimaryMatched,
+        IReadOnlyList<string> MatchedDirections,
+        IReadOnlyList<string> MatchedGlobalAxisHints);
+
+    private static FeatureStructureDirectionRequest NormalizeFeatureStructureDirection(string? direction)
+    {
+        if (string.IsNullOrWhiteSpace(direction)
+            || string.Equals(direction, "all", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(direction, "*", StringComparison.OrdinalIgnoreCase))
+        {
+            return new FeatureStructureDirectionRequest(null, null, Array.Empty<string>());
+        }
+
+        string trimmed = direction.Trim();
+        string normalized = NormalizeDirectionToken(trimmed);
+        return normalized switch
+        {
+            "front.horizontal" =>
+                new FeatureStructureDirectionRequest(trimmed, "X_width", new[] { "front.horizontal" }),
+            "top.horizontal" =>
+                new FeatureStructureDirectionRequest(trimmed, "X_width", new[] { "top.horizontal" }),
+            "top.vertical" =>
+                new FeatureStructureDirectionRequest(trimmed, "Y_depth", new[] { "top.vertical" }),
+            "right.horizontal" =>
+                new FeatureStructureDirectionRequest(trimmed, "Y_depth", new[] { "right.horizontal" }),
+            "front.vertical" =>
+                new FeatureStructureDirectionRequest(trimmed, "Z_height", new[] { "front.vertical" }),
+            "right.vertical" =>
+                new FeatureStructureDirectionRequest(trimmed, "Z_height", new[] { "right.vertical" }),
+            "x" or "xwidth" or "width" or "wide" or "length" or "long" or "leftright" or "fronthorizontal" or "tophorizontal" =>
+                new FeatureStructureDirectionRequest(trimmed, "X_width", new[] { "front.horizontal", "top.horizontal" }),
+            "y" or "ydepth" or "depth" or "frontback" or "backfront" or "topvertical" or "righthorizontal" =>
+                new FeatureStructureDirectionRequest(trimmed, "Y_depth", new[] { "top.vertical", "right.horizontal" }),
+            "z" or "zheight" or "height" or "tall" or "vertical" or "frontvertical" or "rightvertical" =>
+                new FeatureStructureDirectionRequest(trimmed, "Z_height", new[] { "front.vertical", "right.vertical" }),
+            _ => NormalizeFeatureStructureDirectionFromChinese(trimmed)
+                ?? NormalizeFeatureStructureExactDirectionLabel(trimmed)
+                ?? throw new ArgumentException(
+                    "direction must be height/width/depth, x/y/z, X_width/Y_depth/Z_height, a view label such as front.vertical, all, or omitted.",
+                    nameof(direction)),
+        };
+    }
+
+    private static FeatureStructureDirectionRequest? NormalizeFeatureStructureDirectionFromChinese(string direction)
+    {
+        if (ContainsAny(direction, "高度", "高", "增高", "升高", "降低", "变高", "变矮", "竖直", "垂直"))
+        {
+            return new FeatureStructureDirectionRequest(direction, "Z_height", new[] { "front.vertical", "right.vertical" });
+        }
+
+        if (ContainsAny(direction, "宽度", "宽", "左右", "横向", "加宽", "变宽", "缩窄", "长度", "长", "加长", "延长", "变长"))
+        {
+            return new FeatureStructureDirectionRequest(direction, "X_width", new[] { "front.horizontal", "top.horizontal" });
+        }
+
+        if (ContainsAny(direction, "深度", "深", "前后", "纵深", "进深"))
+        {
+            return new FeatureStructureDirectionRequest(direction, "Y_depth", new[] { "top.vertical", "right.horizontal" });
+        }
+
+        return null;
+    }
+
+    private static FeatureStructureDirectionRequest? NormalizeFeatureStructureExactDirectionLabel(string direction)
+    {
+        string label = direction.Trim().ToLowerInvariant();
+        return label switch
+        {
+            "front.horizontal" => new FeatureStructureDirectionRequest(direction, "X_width", new[] { "front.horizontal" }),
+            "top.horizontal" => new FeatureStructureDirectionRequest(direction, "X_width", new[] { "top.horizontal" }),
+            "top.vertical" => new FeatureStructureDirectionRequest(direction, "Y_depth", new[] { "top.vertical" }),
+            "right.horizontal" => new FeatureStructureDirectionRequest(direction, "Y_depth", new[] { "right.horizontal" }),
+            "front.vertical" => new FeatureStructureDirectionRequest(direction, "Z_height", new[] { "front.vertical" }),
+            "right.vertical" => new FeatureStructureDirectionRequest(direction, "Z_height", new[] { "right.vertical" }),
+            _ => null,
+        };
+    }
+
+    private static string? InferFeatureStructureDirectionFromQuery(string? query)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return null;
+        }
+
+        string normalized = NormalizeDirectionToken(query);
+        if (normalized.Contains("height", StringComparison.OrdinalIgnoreCase)
+            || normalized.Contains("tall", StringComparison.OrdinalIgnoreCase)
+            || normalized.Contains("zheight", StringComparison.OrdinalIgnoreCase)
+            || normalized.Contains("z_height", StringComparison.OrdinalIgnoreCase)
+            || ContainsAny(query, "高度", "增高", "升高", "降低", "变高", "变矮", "垂直", "竖直"))
+        {
+            return "height";
+        }
+
+        if (normalized.Contains("width", StringComparison.OrdinalIgnoreCase)
+            || normalized.Contains("wide", StringComparison.OrdinalIgnoreCase)
+            || normalized.Contains("xwidth", StringComparison.OrdinalIgnoreCase)
+            || normalized.Contains("x_width", StringComparison.OrdinalIgnoreCase)
+            || normalized.Contains("length", StringComparison.OrdinalIgnoreCase)
+            || normalized.Contains("long", StringComparison.OrdinalIgnoreCase)
+            || ContainsAny(query, "宽度", "加宽", "变宽", "缩窄", "左右", "横向", "长度", "加长", "延长", "变长"))
+        {
+            return "width";
+        }
+
+        if (normalized.Contains("depth", StringComparison.OrdinalIgnoreCase)
+            || normalized.Contains("ydepth", StringComparison.OrdinalIgnoreCase)
+            || normalized.Contains("y_depth", StringComparison.OrdinalIgnoreCase)
+            || ContainsAny(query, "深度", "前后", "纵深", "进深"))
+        {
+            return "depth";
+        }
+
+        if (normalized.Contains("frontvertical", StringComparison.OrdinalIgnoreCase)
+            || normalized.Contains("rightvertical", StringComparison.OrdinalIgnoreCase))
+        {
+            return "height";
+        }
+
+        if (normalized.Contains("fronthorizontal", StringComparison.OrdinalIgnoreCase)
+            || normalized.Contains("tophorizontal", StringComparison.OrdinalIgnoreCase))
+        {
+            return "width";
+        }
+
+        if (normalized.Contains("topvertical", StringComparison.OrdinalIgnoreCase)
+            || normalized.Contains("righthorizontal", StringComparison.OrdinalIgnoreCase))
+        {
+            return "depth";
+        }
+
+        return null;
+    }
+
+    private static FeatureStructureDirectionMatch MatchFeatureStructureDirection(
+        FeatureStructureAnnotationEntry entry,
+        FeatureStructureDirectionRequest request)
+    {
+        if (request.IsAll)
+        {
+            return new FeatureStructureDirectionMatch(false, Array.Empty<string>(), Array.Empty<string>());
+        }
+
+        var labels = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var globalAxisHints = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        bool primaryMatched = false;
+
+        AddFeatureStructureDirectionMatch(entry.PrimaryDirection, isPrimary: true);
+        foreach (var direction in entry.AffectedDirections ?? Array.Empty<FeatureStructureDirectionInfo>())
+        {
+            AddFeatureStructureDirectionMatch(direction, isPrimary: false);
+        }
+
+        return new FeatureStructureDirectionMatch(
+            primaryMatched,
+            labels.OrderBy(label => label, StringComparer.OrdinalIgnoreCase).ToList().AsReadOnly(),
+            globalAxisHints.OrderBy(axis => axis, StringComparer.OrdinalIgnoreCase).ToList().AsReadOnly());
+
+        void AddFeatureStructureDirectionMatch(FeatureStructureDirectionInfo? direction, bool isPrimary)
+        {
+            if (direction == null)
+            {
+                return;
+            }
+
+            bool labelMatched = !string.IsNullOrWhiteSpace(direction.Label)
+                && request.DirectionLabels.Contains(direction.Label, StringComparer.OrdinalIgnoreCase);
+            bool axisMatched = !string.IsNullOrWhiteSpace(direction.GlobalAxisHint)
+                && !string.IsNullOrWhiteSpace(request.GlobalAxisHint)
+                && string.Equals(direction.GlobalAxisHint, request.GlobalAxisHint, StringComparison.OrdinalIgnoreCase);
+
+            if (!labelMatched && !axisMatched)
+            {
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(direction.Label) && !string.Equals(direction.Label, "unknown", StringComparison.OrdinalIgnoreCase))
+            {
+                labels.Add(direction.Label);
+            }
+
+            if (!string.IsNullOrWhiteSpace(direction.GlobalAxisHint) && !string.Equals(direction.GlobalAxisHint, "unknown", StringComparison.OrdinalIgnoreCase))
+            {
+                globalAxisHints.Add(direction.GlobalAxisHint);
+            }
+
+            if (isPrimary)
+            {
+                primaryMatched = true;
+            }
+        }
+    }
+
+    private static int ScoreFeatureStructureAnnotation(
+        FeatureStructureAnnotationEntry entry,
+        FeatureStructureDirectionRequest request,
+        string? query)
+    {
+        int score = 0;
+        var directionMatch = MatchFeatureStructureDirection(entry, request);
+        if (request.IsAll)
+        {
+            score += entry.IsStructural ? 1000 : 0;
+        }
+        else
+        {
+            score += directionMatch.MatchedGlobalAxisHints.Count * 1000;
+            score += directionMatch.MatchedDirections.Count * 250;
+            if (directionMatch.PrimaryMatched)
+            {
+                score += 750;
+            }
+        }
+
+        if (entry.DimensionChangeIntent.CanDriveOverallSizeChange)
+        {
+            score += 250;
+        }
+
+        score += NormalizeEditRelevance(entry.DimensionChangeIntent.EditRelevance) switch
+        {
+            "direct" => 500,
+            "indirect" => 200,
+            "weak" => 50,
+            _ => 0,
+        };
+
+        if (request.GlobalAxisHint != null)
+        {
+            string? editAxis = NormalizeRecommendedEditAxis(entry.DimensionChangeIntent.RecommendedEditAxis);
+            if (editAxis != null && string.Equals(editAxis, request.GlobalAxisHint, StringComparison.OrdinalIgnoreCase))
+            {
+                score += 300;
+            }
+        }
+
+        if (entry.Confidence is > 0)
+        {
+            score += (int)Math.Round(entry.Confidence.Value * 100);
+        }
+
+        if (query == null)
+        {
+            return score;
+        }
+
+        string haystack = BuildFeatureStructureSearchText(entry);
+        foreach (var token in SplitTokens(query))
+        {
+            if (haystack.Contains(token, StringComparison.OrdinalIgnoreCase))
+            {
+                score += 100;
+            }
+        }
+
+        if (haystack.Contains(query, StringComparison.OrdinalIgnoreCase))
+        {
+            score += 500;
+        }
+
+        return score;
+    }
+
+    private static string BuildFeatureStructureSearchText(FeatureStructureAnnotationEntry entry)
+    {
+        var values = new List<string?>
+        {
+            entry.NodeId,
+            entry.Name,
+            entry.FeatureTypeName,
+            entry.FeaturePath,
+            entry.GraphPath,
+            entry.DocumentTitle,
+            entry.DocumentPath,
+            entry.HierarchyPath,
+            entry.ThreeViewOutputDirectory,
+            entry.StructuralCategory,
+            entry.PrimaryDirection.Label,
+            entry.PrimaryDirection.View,
+            entry.PrimaryDirection.Axis,
+            entry.PrimaryDirection.GlobalAxisHint,
+            entry.PrimaryDirection.Influence,
+            entry.DimensionChangeIntent.RecommendedEditAxis,
+            entry.DimensionChangeIntent.EditRelevance,
+            entry.Evidence.RedFeatureLocation,
+            entry.Evidence.Reason,
+            entry.Evidence.Uncertainty,
+        };
+
+        foreach (var direction in entry.AffectedDirections ?? Array.Empty<FeatureStructureDirectionInfo>())
+        {
+            values.Add(direction.Label);
+            values.Add(direction.View);
+            values.Add(direction.Axis);
+            values.Add(direction.GlobalAxisHint);
+            values.Add(direction.Influence);
+        }
+
+        foreach (var image in entry.Images ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase))
+        {
+            values.Add(image.Key);
+            values.Add(image.Value);
+        }
+
+        return string.Join(" | ", values.Where(value => !string.IsNullOrWhiteSpace(value)));
+    }
+
+    private static bool FeatureStructureQueryMatches(FeatureStructureAnnotationEntry entry, string? query)
+    {
+        if (query == null)
+        {
+            return true;
+        }
+
+        string haystack = BuildFeatureStructureSearchText(entry);
+        if (haystack.Contains(query, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return SplitTokens(query).Any(token => haystack.Contains(token, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string? NormalizeRecommendedEditAxis(string? axis)
+    {
+        if (string.IsNullOrWhiteSpace(axis))
+        {
+            return null;
+        }
+
+        string normalized = NormalizeDirectionToken(axis);
+        return normalized switch
+        {
+            "x" or "width" or "wide" or "length" or "long" or "xwidth" or "x_width" => "X_width",
+            "y" or "depth" or "ydepth" or "y_depth" => "Y_depth",
+            "z" or "height" or "tall" or "zheight" or "z_height" => "Z_height",
+            _ => NormalizeFeatureStructureDirectionFromChinese(axis)?.GlobalAxisHint,
+        };
+    }
+
+    private static string NormalizeEditRelevance(string? editRelevance)
+        => string.IsNullOrWhiteSpace(editRelevance) ? string.Empty : editRelevance.Trim().ToLowerInvariant();
+
+    private static string NormalizeDirectionToken(string value)
+        => value.Trim()
+            .ToLowerInvariant()
+            .Replace(" ", string.Empty, StringComparison.Ordinal)
+            .Replace("-", string.Empty, StringComparison.Ordinal)
+            .Replace("_", string.Empty, StringComparison.Ordinal);
+
+    private static bool ContainsAny(string value, params string[] needles)
+        => needles.Any(needle => value.Contains(needle, StringComparison.OrdinalIgnoreCase));
+
     private static int ScoreAnnotation(AssemblyEntityDimensionAnnotationEntry entry, string? axis, string? query)
     {
         int score = GetRelatedAxes(entry, axis).Count * 1000;
@@ -3241,6 +5549,71 @@ public sealed class AssemblyEntityAnnotationService : IAssemblyEntityAnnotationS
         };
     }
 
+    private static SolidWorksFilteredFeatureTree LoadFilteredFeatureTree(string filteredFeatureTreePath)
+    {
+        string normalized = Path.GetFullPath(filteredFeatureTreePath);
+        if (!File.Exists(normalized))
+        {
+            throw new FileNotFoundException($"Filtered feature tree was not found: {normalized}", normalized);
+        }
+
+        var filtered = JsonSerializer.Deserialize<SolidWorksFilteredFeatureTree>(File.ReadAllText(normalized, Encoding.UTF8), JsonOptions)
+            ?? throw new InvalidOperationException($"Could not deserialize filtered feature tree: {normalized}");
+        return filtered with
+        {
+            OutputPath = string.IsNullOrWhiteSpace(filtered.OutputPath) ? normalized : Path.GetFullPath(filtered.OutputPath),
+            SourceFeatureTreePath = string.IsNullOrWhiteSpace(filtered.SourceFeatureTreePath)
+                ? Path.Combine(Path.GetDirectoryName(normalized) ?? Directory.GetCurrentDirectory(), "feature-tree.json")
+                : Path.GetFullPath(filtered.SourceFeatureTreePath),
+            Targets = filtered.Targets ?? Array.Empty<SolidWorksFilteredFeatureTreeTarget>(),
+        };
+    }
+
+    private static SolidWorksFeatureThreeViewCaptureResult LoadFeatureThreeViewCaptureResult(string manifestPath)
+    {
+        string normalized = Path.GetFullPath(manifestPath);
+        if (!File.Exists(normalized))
+        {
+            throw new FileNotFoundException($"Feature three-view manifest was not found: {normalized}", normalized);
+        }
+
+        var manifest = JsonSerializer.Deserialize<SolidWorksFeatureThreeViewCaptureResult>(File.ReadAllText(normalized, Encoding.UTF8), JsonOptions)
+            ?? throw new InvalidOperationException($"Could not deserialize feature three-view manifest: {normalized}");
+        return manifest with
+        {
+            ManifestPath = string.IsNullOrWhiteSpace(manifest.ManifestPath) ? normalized : Path.GetFullPath(manifest.ManifestPath),
+            OutputDirectory = string.IsNullOrWhiteSpace(manifest.OutputDirectory)
+                ? Path.GetDirectoryName(normalized) ?? Directory.GetCurrentDirectory()
+                : Path.GetFullPath(manifest.OutputDirectory),
+            FilteredFeatureTreePath = string.IsNullOrWhiteSpace(manifest.FilteredFeatureTreePath)
+                ? Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(normalized) ?? normalized) ?? Directory.GetCurrentDirectory(), "feature-tree-filtered-features.json")
+                : Path.GetFullPath(manifest.FilteredFeatureTreePath),
+            Targets = manifest.Targets ?? Array.Empty<SolidWorksFeatureThreeViewTargetResult>(),
+        };
+    }
+
+    private static SolidWorksFeatureTreeExportResult LoadFeatureTreeExport(string featureTreePath)
+    {
+        string normalized = Path.GetFullPath(featureTreePath);
+        if (!File.Exists(normalized))
+        {
+            throw new FileNotFoundException($"Feature tree export was not found: {normalized}", normalized);
+        }
+
+        var export = JsonSerializer.Deserialize<SolidWorksFeatureTreeExportResult>(File.ReadAllText(normalized, Encoding.UTF8), JsonOptions)
+            ?? throw new InvalidOperationException($"Could not deserialize feature tree export: {normalized}");
+        return export with
+        {
+            FeatureTreePath = string.IsNullOrWhiteSpace(export.FeatureTreePath) ? normalized : Path.GetFullPath(export.FeatureTreePath),
+            DocumentJournalPath = string.IsNullOrWhiteSpace(export.DocumentJournalPath)
+                ? Path.Combine(Path.GetDirectoryName(normalized) ?? Directory.GetCurrentDirectory(), "feature-tree-documents.jsonl")
+                : Path.GetFullPath(export.DocumentJournalPath),
+            OutputDirectory = string.IsNullOrWhiteSpace(export.OutputDirectory)
+                ? Path.GetDirectoryName(normalized) ?? Directory.GetCurrentDirectory()
+                : Path.GetFullPath(export.OutputDirectory),
+        };
+    }
+
     private static AssemblyEntityDimensionAnnotationSet LoadAnnotationSet(string annotationPath)
     {
         string normalized = Path.GetFullPath(annotationPath);
@@ -3254,6 +5627,50 @@ public sealed class AssemblyEntityAnnotationService : IAssemblyEntityAnnotationS
         return annotations with
         {
             AnnotationPath = string.IsNullOrWhiteSpace(annotations.AnnotationPath) ? normalized : Path.GetFullPath(annotations.AnnotationPath),
+        };
+    }
+
+    private static FeatureStructureAnnotationSet LoadFeatureStructureAnnotationSet(string annotationPath)
+    {
+        string normalized = Path.GetFullPath(annotationPath);
+        if (Directory.Exists(normalized))
+        {
+            normalized = Path.Combine(normalized, "feature-structure-annotations.json");
+        }
+
+        if (!File.Exists(normalized))
+        {
+            throw new FileNotFoundException($"Feature structure annotation file was not found: {normalized}", normalized);
+        }
+
+        string json = File.ReadAllText(normalized, Encoding.UTF8);
+        using var document = JsonDocument.Parse(json);
+        FeatureStructureAnnotationSet annotations;
+        if (document.RootElement.ValueKind == JsonValueKind.Array)
+        {
+            var entries = JsonSerializer.Deserialize<IReadOnlyList<FeatureStructureAnnotationEntry>>(json, JsonOptions)
+                ?? Array.Empty<FeatureStructureAnnotationEntry>();
+            annotations = new FeatureStructureAnnotationSet
+            {
+                AnnotationPath = normalized,
+                TargetCount = entries.Count,
+                CompletedCount = entries.Count(entry => string.Equals(entry.AnnotationStatus, "completed", StringComparison.OrdinalIgnoreCase)),
+                FailedCount = entries.Count(entry => string.Equals(entry.AnnotationStatus, "failed", StringComparison.OrdinalIgnoreCase)),
+                Entries = entries,
+            };
+        }
+        else
+        {
+            annotations = JsonSerializer.Deserialize<FeatureStructureAnnotationSet>(json, JsonOptions)
+                ?? throw new InvalidOperationException($"Could not deserialize feature structure annotation file: {normalized}");
+        }
+
+        return annotations with
+        {
+            AnnotationPath = string.IsNullOrWhiteSpace(annotations.AnnotationPath)
+                ? normalized
+                : Path.GetFullPath(annotations.AnnotationPath),
+            Entries = annotations.Entries ?? Array.Empty<FeatureStructureAnnotationEntry>(),
         };
     }
 
@@ -3281,6 +5698,160 @@ public sealed class AssemblyEntityAnnotationService : IAssemblyEntityAnnotationS
         }
 
         File.WriteAllText(path, JsonSerializer.Serialize(value, JsonOptions), Encoding.UTF8);
+    }
+
+    private static void WriteFeatureTreeProgress(string path, SolidWorksFeatureTreeExportProgress progress)
+    {
+        try
+        {
+            WriteJson(path, progress);
+        }
+        catch
+        {
+            // Progress diagnostics must never make the SolidWorks export fail.
+        }
+    }
+
+    private static void AppendFeatureTreeDocumentJournalEntry(
+        string path,
+        string outputDirectory,
+        string featureTreePath,
+        SolidWorksFeatureTreeDocumentInfo document)
+    {
+        try
+        {
+            var directory = Path.GetDirectoryName(path);
+            if (!string.IsNullOrWhiteSpace(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            if (FeatureTreeDocumentJournalContains(path, document.DocumentId))
+            {
+                return;
+            }
+
+            var entry = new SolidWorksFeatureTreeDocumentJournalEntry
+            {
+                OutputDirectory = outputDirectory,
+                FeatureTreePath = featureTreePath,
+                DocumentJournalPath = path,
+                DocumentId = document.DocumentId,
+                Role = document.Role,
+                Title = document.Title,
+                Path = document.Path,
+                ComponentName = document.ComponentName,
+                HierarchyPath = document.HierarchyPath,
+                FeaturesSkipped = document.FeaturesSkipped,
+                FeatureCount = CountFeatureTreeFeatures(document),
+                Document = document,
+            };
+            File.AppendAllText(path, JsonSerializer.Serialize(entry, JsonLineOptions) + System.Environment.NewLine, Encoding.UTF8);
+        }
+        catch
+        {
+            // Journal output is diagnostic and resumability support; it must not break COM traversal.
+        }
+    }
+
+    private static bool FeatureTreeDocumentJournalContains(string path, string documentId)
+    {
+        if (string.IsNullOrWhiteSpace(documentId) || !File.Exists(path))
+        {
+            return false;
+        }
+
+        try
+        {
+            foreach (string line in File.ReadLines(path, Encoding.UTF8))
+            {
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    continue;
+                }
+
+                using var document = JsonDocument.Parse(line);
+                if (document.RootElement.TryGetProperty(nameof(SolidWorksFeatureTreeDocumentJournalEntry.DocumentId), out var id)
+                    && string.Equals(id.GetString(), documentId, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+        }
+        catch
+        {
+            return false;
+        }
+
+        return false;
+    }
+
+    private static ISet<string> NormalizeFeatureDocumentSkipSet(string[]? paths)
+        => (paths ?? Array.Empty<string>())
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(path => Path.GetFullPath(path.Trim()))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    private static string? NormalizeFeatureSourceDocumentKey(string? documentPath)
+    {
+        if (string.IsNullOrWhiteSpace(documentPath))
+        {
+            return null;
+        }
+
+        string trimmed = documentPath.Trim();
+        try
+        {
+            return Path.GetFullPath(trimmed);
+        }
+        catch
+        {
+            return trimmed;
+        }
+    }
+
+    private static string? GetPreResolveFeatureDocumentSkipReason(
+        string? title,
+        string? documentPath,
+        ISet<string> skippedFeatureDocuments,
+        bool skipImportedFeatureDocuments,
+        bool exportDuplicateSourceDocumentFeatures,
+        ISet<string> exportedFeatureSourceDocuments)
+    {
+        string? sourceKey = NormalizeFeatureSourceDocumentKey(documentPath);
+        if (sourceKey != null && skippedFeatureDocuments.Contains(sourceKey))
+        {
+            return "Feature enumeration was skipped because this document path matched skipFeatureDocumentPaths.";
+        }
+
+        if (skipImportedFeatureDocuments && IsImportedFeatureDocument(title, documentPath))
+        {
+            return "Feature enumeration was skipped because this document looks like an imported STEP/neutral-format document.";
+        }
+
+        if (!exportDuplicateSourceDocumentFeatures
+            && sourceKey != null
+            && exportedFeatureSourceDocuments.Contains(sourceKey))
+        {
+            return "Feature enumeration was skipped because this source document's features were already exported for another component instance.";
+        }
+
+        return null;
+    }
+
+    private static bool IsImportedFeatureDocument(string? title, string? documentPath)
+    {
+        string text = string.Join(" ", title ?? string.Empty, documentPath ?? string.Empty);
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+
+        string normalized = text.Replace('\\', '/');
+        return normalized.Contains("Open CASCADE STEP translator", StringComparison.OrdinalIgnoreCase)
+            || normalized.Contains("STEP translator", StringComparison.OrdinalIgnoreCase)
+            || normalized.Contains("IGES translator", StringComparison.OrdinalIgnoreCase)
+            || normalized.Contains("Parasolid", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string ResolveConfiguredValue(string? explicitValue, string primaryEnv, string secondaryEnv, string fallback)
@@ -3331,6 +5902,43 @@ public sealed class AssemblyEntityAnnotationService : IAssemblyEntityAnnotationS
         return builder.ToString();
     }
 
+    private static string ToUniqueFeatureFolderName(string displayName, string? nodeId, string fallback)
+    {
+        string safeName = ToSafePathSegment(string.IsNullOrWhiteSpace(displayName) ? "feature" : displayName.Trim());
+        if (safeName.Length > 80)
+        {
+            safeName = safeName[..80].Trim('_');
+        }
+
+        string safeNodeId = ToSafePathSegment(string.IsNullOrWhiteSpace(nodeId) ? fallback : nodeId.Trim());
+        if (string.IsNullOrWhiteSpace(safeNodeId))
+        {
+            safeNodeId = "feature";
+        }
+
+        return $"{safeName}_{safeNodeId}";
+    }
+
+    private static string CreateThreeViewTargetKey(SolidWorksFilteredFeatureTreeTarget target)
+        => string.Join("|", new[]
+        {
+            target.SourceIndex.ToString(CultureInfo.InvariantCulture),
+            target.HierarchyPath ?? string.Empty,
+            target.DocumentPath ?? target.ParentDocument?.Path ?? string.Empty,
+            target.FeaturePath ?? string.Empty,
+            target.Name ?? string.Empty,
+        });
+
+    private static string CreateThreeViewTargetKey(SolidWorksFeatureThreeViewTargetResult target)
+        => string.Join("|", new[]
+        {
+            target.SourceIndex.ToString(CultureInfo.InvariantCulture),
+            target.HierarchyPath ?? string.Empty,
+            target.DocumentPath ?? string.Empty,
+            target.FeaturePath ?? string.Empty,
+            target.Name,
+        });
+
     private static string CreateTargetId(
         string entityKind,
         string? hierarchyPath,
@@ -3352,6 +5960,25 @@ public sealed class AssemblyEntityAnnotationService : IAssemblyEntityAnnotationS
         });
         byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(canonical));
         return $"ae_{Convert.ToHexString(hash)[..16].ToLowerInvariant()}";
+    }
+
+    private static string CreateFeatureTreeDocumentId(
+        string role,
+        string? hierarchyPath,
+        string? componentPath,
+        string? documentPath,
+        string? title)
+    {
+        string canonical = string.Join("|", new[]
+        {
+            role,
+            hierarchyPath ?? string.Empty,
+            componentPath ?? string.Empty,
+            documentPath ?? string.Empty,
+            title ?? string.Empty,
+        });
+        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(canonical));
+        return $"doc_{Convert.ToHexString(hash)[..16].ToLowerInvariant()}";
     }
 
     private static IReadOnlyList<ComponentInstance> EnumerateComponentInstances(IAssemblyDoc assy)
@@ -3417,6 +6044,48 @@ public sealed class AssemblyEntityAnnotationService : IAssemblyEntityAnnotationS
 
         return doc as IAssemblyDoc
             ?? throw new InvalidOperationException("Active document is not an assembly");
+    }
+
+    private IModelDoc2 GetActiveModelDoc()
+    {
+        var doc = _cm.SwApp!.IActiveDoc2;
+        if (doc == null)
+        {
+            int visibleDocumentCount = 0;
+            IReadOnlyList<string> visibleDocuments = Array.Empty<string>();
+            try
+            {
+                visibleDocumentCount = _cm.SwApp!.GetDocumentCount();
+                visibleDocuments = _cm.SwApp!.ListDocs()
+                    .Select(item => string.IsNullOrWhiteSpace(item.Path)
+                        ? item.Title
+                        : $"{item.Title} | {item.Path}")
+                    .Where(item => !string.IsNullOrWhiteSpace(item))
+                    .ToArray();
+            }
+            catch
+            {
+                // Diagnostic details are best-effort.
+            }
+
+            string detail = visibleDocuments.Count == 0
+                ? $"MCP sees {visibleDocumentCount} open document(s), but none is active."
+                : $"MCP sees {visibleDocumentCount} open document(s), but none is active: {string.Join("; ", visibleDocuments)}";
+            throw new InvalidOperationException(
+                "No active document. " + detail +
+                " If SolidWorks visibly has a document open, the MCP Hub may be attached to a different or stale SolidWorks COM instance. " +
+                "Use the Python runner --force-reconnect or --document <full .SLDASM/.SLDPRT path>, or restart the MCP tray/Hub.");
+        }
+
+        int documentType = SafeGetDocumentType(doc);
+        if (documentType != (int)swDocumentTypes_e.swDocPART
+            && documentType != (int)swDocumentTypes_e.swDocASSEMBLY)
+        {
+            throw new InvalidOperationException(
+                $"Active document must be a part or assembly. Current document type: {documentType} ({ToDocumentTypeName(documentType)}).");
+        }
+
+        return doc;
     }
 
     private static void SafeGraphicsRedraw(IModelDoc2 doc)
@@ -3510,6 +6179,21 @@ public sealed class AssemblyEntityAnnotationService : IAssemblyEntityAnnotationS
         }
     }
 
+    private static string? GetLocalComponentNameOrNull(string? componentName)
+    {
+        if (string.IsNullOrWhiteSpace(componentName))
+        {
+            return null;
+        }
+
+        string normalized = componentName.Trim().Replace('\\', '/');
+        string[] parts = normalized.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return parts.Length == 0 ? normalized : parts[^1];
+    }
+
+    private static string GetLocalComponentName(string? componentName)
+        => GetLocalComponentNameOrNull(componentName) ?? "Component";
+
     private static object[] SafeGetComponentChildren(IComponent2 component)
     {
         try
@@ -3582,6 +6266,52 @@ public sealed class AssemblyEntityAnnotationService : IAssemblyEntityAnnotationS
         }
     }
 
+    private static bool IsReferenceFeature(Feature feature)
+        => IsReferenceFeatureType(SafeGetFeatureTypeName(feature));
+
+    private static bool IsReferenceFeatureType(string? featureTypeName)
+        => string.Equals(featureTypeName, "Reference", StringComparison.OrdinalIgnoreCase);
+
+    private static IComponent2? SafeGetFeatureSpecificComponent(Feature feature)
+    {
+        try
+        {
+            return feature.GetSpecificFeature2() as IComponent2;
+        }
+        catch (COMException)
+        {
+            return null;
+        }
+        catch (TargetInvocationException)
+        {
+            return null;
+        }
+    }
+
+    private static IComponent2? FindReferenceFeatureComponent(
+        IModelDoc2 document,
+        IComponent2? owningComponent,
+        string featureName)
+    {
+        string normalizedFeatureName = GetLocalComponentNameOrNull(featureName) ?? featureName;
+        if (string.IsNullOrWhiteSpace(normalizedFeatureName))
+        {
+            return null;
+        }
+
+        var candidates = GetAssemblyChildComponents(document, owningComponent)
+            .OfType<IComponent2>()
+            .Where(component =>
+            {
+                string? rawName = SafeGetComponentName(component);
+                string? localName = GetLocalComponentNameOrNull(rawName);
+                return string.Equals(rawName, featureName, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(localName, normalizedFeatureName, StringComparison.OrdinalIgnoreCase);
+            })
+            .ToList();
+        return candidates.Count == 1 ? candidates[0] : null;
+    }
+
     private static string? SafeGetFeatureName(Feature feature)
     {
         try
@@ -3629,6 +6359,27 @@ public sealed class AssemblyEntityAnnotationService : IAssemblyEntityAnnotationS
             return null;
         }
     }
+
+    private static int SafeGetDocumentType(IModelDoc2 doc)
+    {
+        try
+        {
+            return doc.GetType();
+        }
+        catch (COMException)
+        {
+            return 0;
+        }
+    }
+
+    private static string ToDocumentTypeName(int documentType)
+        => documentType switch
+        {
+            (int)swDocumentTypes_e.swDocPART => "Part",
+            (int)swDocumentTypes_e.swDocASSEMBLY => "Assembly",
+            (int)swDocumentTypes_e.swDocDRAWING => "Drawing",
+            _ => "Unknown",
+        };
 
     private static IEnumerable<IBody2> GetBodies(IComponent2 component)
     {

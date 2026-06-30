@@ -8,6 +8,40 @@ namespace SolidWorksMcpApp.Tools;
 [McpServerToolType]
 public class AssemblyEntityAnnotationTools(StaDispatcher sta, IAssemblyEntityAnnotationService annotations)
 {
+    [McpServerTool, Description("Export the full FeatureManager feature tree for the active SolidWorks part or assembly. For assemblies, recursively includes loaded child parts and child subassemblies, preserving component hierarchy paths and document paths. Writes feature-tree.json without screenshots or filtering.")]
+    public async Task<string> ExportActiveDocumentFeatureTree(
+        [Description("Output directory for feature-tree.json.")] string outputDirectory,
+        [Description("When true, rebuilds feature-tree.json even if it already exists.")] bool overwrite = false,
+        [Description("When true, expands management FeatureManager folders such as component folders, mates, annotations, and reference folders. Defaults to false because large assemblies can be extremely slow; child part/subassembly trees are still exported through component documents.")] bool expandManagementFeatureSubTrees = false,
+        [Description("When true, expands feature subtrees recursively. Defaults to false; HasSubFeatures is still recorded and is enough for first-pass filtering.")] bool expandFeatureSubTrees = false,
+        [Description("When true, enumerates features inside loaded child assembly documents too. Defaults to false; child part features are controlled by includePartFeatures.")] bool includeComponentFeatures = false,
+        [Description("When true, enumerates features inside loaded child part documents. Defaults to true so recursive part feature trees are included.")] bool includePartFeatures = true,
+        [Description("When true, exports only the currently active document's own FeatureManager features and does not traverse child components or subassemblies. Use this for timing/debugging active-document feature enumeration.")] bool activeDocumentOnly = false,
+        [Description("Optional full document paths whose feature nodes should be skipped while still exporting their component/document address nodes. Use this for imported parts that block feature enumeration.")] string[]? skipFeatureDocumentPaths = null,
+        [Description("When true, keeps appending to feature-tree-documents.jsonl even when overwrite is true. Used by retrying clients so partial document journals survive timeouts.")] bool appendDocumentJournal = false,
+        [Description("When true, skips feature enumeration for imported neutral-format documents such as Open CASCADE STEP translator files while preserving their document/component nodes. Defaults to true for large assemblies.")] bool skipImportedFeatureDocuments = true,
+        [Description("When true, exports feature nodes for every repeated instance of the same source document. Defaults to false so repeated parts/subassemblies keep their address nodes but only the first instance exports features.")] bool exportDuplicateSourceDocumentFeatures = false)
+    {
+        var result = await sta.InvokeLoggedAsync(
+            nameof(ExportActiveDocumentFeatureTree),
+            new { outputDirectory, overwrite, expandManagementFeatureSubTrees, expandFeatureSubTrees, includeComponentFeatures, includePartFeatures, activeDocumentOnly, skipFeatureDocumentPaths, appendDocumentJournal, skipImportedFeatureDocuments, exportDuplicateSourceDocumentFeatures },
+            () => annotations.ExportActiveDocumentFeatureTree(outputDirectory, overwrite, expandManagementFeatureSubTrees, expandFeatureSubTrees, includeComponentFeatures, includePartFeatures, activeDocumentOnly, skipFeatureDocumentPaths, appendDocumentJournal, skipImportedFeatureDocuments, exportDuplicateSourceDocumentFeatures));
+        return JsonSerializer.Serialize(new SolidWorksFeatureTreeExportSummary
+        {
+            SchemaVersion = result.SchemaVersion,
+            CreatedUtc = result.CreatedUtc,
+            OutputDirectory = result.OutputDirectory,
+            FeatureTreePath = result.FeatureTreePath,
+            DocumentJournalPath = result.DocumentJournalPath,
+            ActiveDocumentTitle = result.ActiveDocumentTitle,
+            ActiveDocumentPath = result.ActiveDocumentPath,
+            ActiveDocumentType = result.ActiveDocumentType,
+            ActiveDocumentTypeName = result.ActiveDocumentTypeName,
+            DocumentCount = result.DocumentCount,
+            FeatureCount = result.FeatureCount,
+        });
+    }
+
     [McpServerTool, Description("Build a reusable candidate target index for the active assembly without exporting screenshots. Traverses the active assembly plus loaded child components once and writes target-index.json so later capture calls can resolve targets by sourceIndex or targetId without re-enumerating every feature.")]
     public async Task<string> BuildActiveAssemblyEntityAnnotationTargetIndex(
         [Description("Output directory for target-index.json.")] string outputDirectory,
@@ -61,6 +95,38 @@ public class AssemblyEntityAnnotationTools(StaDispatcher sta, IAssemblyEntityAnn
                 maxDurationSeconds,
                 useCleanDisplayMode,
                 capturePaddingFactor));
+        return JsonSerializer.Serialize(result);
+    }
+
+    [McpServerTool, Description("Read feature-tree-filtered-features.json, resolve each filtered feature in the active SolidWorks part/assembly, color it red, export front/top/right PNGs, then export another front/top/right set with non-target model faces made transparent. Images are written under three_views/<feature-name>.")]
+    public async Task<string> CaptureFilteredFeatureTreeThreeViews(
+        [Description("Path to feature-tree-filtered-features.json produced by the Python filter step.")] string filteredFeatureTreePath,
+        [Description("Image width in pixels.")] int width = 1280,
+        [Description("Image height in pixels.")] int height = 720,
+        [Description("Zero-based SourceIndex from the filtered feature tree target list.")] int startIndex = 0,
+        [Description("Maximum filtered feature targets to capture. Use 1 for stable batching.")] int maxTargets = 1,
+        [Description("When true, reads three_views/three-view-manifest.json and skips targets already captured in it.")] bool skipExistingTargets = true,
+        [Description("When true, updates three-view-manifest.json after every target so timed-out requests preserve progress.")] bool writeManifestAfterEachTarget = true,
+        [Description("Maximum wall-clock seconds this tool should spend before returning a partial manifest normally. 0 disables the internal budget, but the MCP client may still enforce its own timeout.")] int maxDurationSeconds = 45,
+        [Description("Extra zoom-out padding applied before exporting each PNG. Defaults to 1.35 to prioritize fitting the whole model in view.")] double capturePaddingFactor = 1.35,
+        [Description("When true, ignores an existing three-view-manifest.json and overwrites output images as targets are processed.")] bool overwrite = false,
+        [Description("Maximum non-target faces to make transparent for the transparent-context views. Defaults to 1000 to avoid excessive COM work on huge assemblies. Use 0 to skip context transparency and only switch to a clean edge display for the second view set.")] int maxTransparentFaces = 1000)
+    {
+        var result = await sta.InvokeLoggedAsync(
+            nameof(CaptureFilteredFeatureTreeThreeViews),
+            new { filteredFeatureTreePath, width, height, startIndex, maxTargets, skipExistingTargets, writeManifestAfterEachTarget, maxDurationSeconds, capturePaddingFactor, overwrite, maxTransparentFaces },
+            () => annotations.CaptureFilteredFeatureTreeThreeViews(
+                filteredFeatureTreePath,
+                width,
+                height,
+                startIndex,
+                maxTargets,
+                skipExistingTargets,
+                writeManifestAfterEachTarget,
+                maxDurationSeconds,
+                capturePaddingFactor,
+                overwrite,
+                maxTransparentFaces));
         return JsonSerializer.Serialize(result);
     }
 
@@ -153,6 +219,18 @@ public class AssemblyEntityAnnotationTools(StaDispatcher sta, IAssemblyEntityAnn
         [Description("Maximum number of structural target matches to return.")] int maxResults = 20)
     {
         var result = annotations.QueryAssemblyStructuralComponentTargets(manifestPath, type, query, maxResults);
+        return Task.FromResult(JsonSerializer.Serialize(result));
+    }
+
+    [McpServerTool, Description("Search feature-structure-annotations.json produced by the VLM feature-structure workflow for structural feature targets that drive an overall height, width, depth, X, Y, Z, or front/top/right view direction. Use this before SolidWorks CAD edits when the user asks to increase/decrease overall height, width, depth, length, footprint, or a view-relative dimension but does not name the exact feature.")]
+    public Task<string> SearchStructuralFeatureTargets(
+        [Description("Path to feature-structure-annotations.json produced by scripts/annotate_feature_structure_with_vlm.py.")] string annotationPath,
+        [Description("Requested affected direction. Accepts height/width/depth, x/y/z, X_width/Y_depth/Z_height, front.vertical, front.horizontal, top.vertical, top.horizontal, right.vertical, right.horizontal, all, or omitted. If omitted, the tool tries to infer direction from query.")] string? direction = null,
+        [Description("Optional user request or search text, such as '整体高度增加100mm', 'increase height', 'make the frame wider', a feature name, document name, or NodeId.")] string? query = null,
+        [Description("When true, first filters to annotations where IsStructural is true. Keep true for dimension-driving structural searches.")] bool onlyStructural = true,
+        [Description("Maximum number of structural feature matches to return.")] int maxResults = 20)
+    {
+        var result = annotations.SearchStructuralFeatureTargets(annotationPath, direction, query, onlyStructural, maxResults);
         return Task.FromResult(JsonSerializer.Serialize(result));
     }
 

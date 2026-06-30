@@ -73,6 +73,89 @@ Added integration:
 
 The entity annotation tools are designed for the workflow where the model first builds an evidence index, then later uses that index to plan size changes.
 
+0. Export the complete feature tree for the active part or assembly:
+
+```powershell
+python .\scripts\capture_assembly_entity_annotations.py `
+  --output-dir C:\temp\sw-work `
+  --feature-tree-only `
+  --overwrite-feature-tree
+```
+
+By default the runner writes the final files under `featru_tree_<active top document name>` next to the requested `--output-dir`; for example `C:\temp\featru_tree_FL9A项目号A401.001`. This directory contains `feature-tree.json`, `feature-tree-documents.jsonl`, and progress/recovery files when applicable. Pass `--no-use-active-document-output-dir` if you need to keep exactly the directory supplied in `--output-dir`.
+
+For an active part, `feature-tree.json` exports that document's FeatureManager features. For an active assembly, it exports the recursive child part/subassembly document tree and address metadata, and it includes child part feature nodes by default. In schema v4, every node is traversed through a single `Children` array. Document children contain feature nodes (`EntityKind = "feature"`) and referenced component/subassembly document nodes (`EntityKind = "document"`). Reference features (`FeatureTypeName = "Reference"`) may contain the referenced part or subassembly document node in their own `Children`, which is how lower-level feature trees are reached without dumping every child assembly management folder. A part document normally has no child component documents, but its `Children` should contain its feature nodes when feature enumeration is enabled. Child assembly document features are skipped by default except for `Reference` features needed to continue recursion; pass `--include-component-features` when you want loaded child assembly feature nodes too. Imported neutral-format files such as STEP-derived parts are skipped by default while preserving their document/component address nodes. If a large imported part blocks export, use `--no-include-part-features` as a fallback, or let the script auto-skip stuck documents while preserving their document/address nodes. Feature subtrees and management folders such as mates, annotations, and component folders are recorded but not expanded by default; use `--expand-feature-subtrees` and `--expand-management-feature-subtrees` only when you need those raw SolidWorks subtrees too.
+
+0a. Filter the feature tree into capture targets:
+
+```powershell
+python .\scripts\capture_assembly_entity_annotations.py `
+  --output-dir C:\temp\featru_tree_FL9A项目号A401.001 `
+  --filter-feature-tree
+```
+
+This reads `feature-tree.json` and writes `feature-tree-filtered-features.json` in the same directory. The current filter keeps only nodes where `EntityKind == "feature"`, `HasSubFeatures == true`, and `FeatureTypeName` is one of `Extrusion`, `WeldMemberFeat`, `ICE`, `SMBaseFlange`, or `EdgeFlange`. Each target keeps the fields needed to re-locate the feature later, including `SourceIndex`, `Name`, `FeatureTypeName`, `FeaturePath`, `GraphPath`, `DocumentPath`, `HierarchyPath`, and `ParentDocument.Path`.
+
+0b. Capture normal highlighted three-view images for each filtered feature:
+
+```powershell
+python .\scripts\capture_assembly_entity_annotations.py `
+  --output-dir C:\temp\featru_tree_FL9A项目号A401.001 `
+  --capture-filtered-feature-three-views `
+  --width 1280 `
+  --height 720 `
+  --batch-size 1 `
+  --tool-time-budget 45 `
+  --request-timeout 120
+```
+
+This reads `feature-tree-filtered-features.json` and writes images under `featru_tree_<active top document name>\three_views`. Each feature gets its own folder named from the feature name plus the feature `NodeId`, for example `凸台-拉伸1_ae_af61fff403c5137f`, so repeated feature names can be checked directly against the JSON node. Each folder currently contains `front.png`, `top.png`, and `right.png` with the target feature colored red. A resumable `three_views\three-view-manifest.json` records processed targets, images, selection status, `nextStartIndex`, and `stoppedReason`. Re-run with the returned `nextStartIndex`, or keep `--resume` enabled and repeat the same command until `stoppedReason` is `completed`.
+
+Transparent context views are intentionally disabled for now because large assemblies can spend most of their time touching SolidWorks face-level appearance objects. The `--max-transparent-faces` parameter is still accepted for compatibility, but the current capture path exports only the normal highlighted three-view set.
+
+0c. Ask a Qwen-compatible VLM whether each highlighted feature is structural and which dimension direction it mainly affects:
+
+```powershell
+Copy-Item .\config\qwen_vlm_config.example.json .\config\qwen_vlm_config.json
+```
+
+Edit `config\qwen_vlm_config.json` and fill `api_key`, or leave `api_key` as the placeholder and set the environment variable named by `api_key_env` such as `DASHSCOPE_API_KEY`. This local config file is ignored by git. If your key starts with `sk-ws-`, it is a Bailian workspace key; fill `workspace_id` or set `base_url` to `https://<WorkspaceId>.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`. The default model in the example config is `qwen3.7-plus`; if your workspace only has another vision model enabled, set `model` accordingly.
+
+Preview the prompt and input paths without calling the VLM:
+
+```powershell
+python .\scripts\annotate_feature_structure_with_vlm.py `
+  --output-dir C:\temp\featru_tree_FL9A椤圭洰鍙稟401.001 `
+  --dry-run
+```
+
+Run the full annotation and merge the result into a copy of the feature tree:
+
+```powershell
+python .\scripts\annotate_feature_structure_with_vlm.py `
+  --output-dir C:\temp\featru_tree_FL9A椤圭洰鍙稟401.001
+```
+
+The script reads `feature-tree-filtered-features.json` and `three_views\three-view-manifest.json`, sends the `front.png`, `top.png`, and `right.png` images for each target to the VLM, and writes `feature-structure-annotations.json`. It also writes `feature-tree-with-structure-annotations.json`, where matching feature nodes contain a `StructuralRoleAnnotation` object. The VLM output is normalized to stable JSON fields including `IsStructural`, `StructuralCategory`, `PrimaryDirection`, `AffectedDirections`, `DimensionChangeIntent`, `Evidence`, and `Confidence`.
+
+Direction labels are intentionally view-relative and finite: `front.horizontal`, `front.vertical`, `top.horizontal`, `top.vertical`, `right.horizontal`, and `right.vertical`. The script also stores a coarse `global_axis_hint`: `X_width`, `Y_depth`, or `Z_height`. For example, a feature that drives overall height should usually be marked as `front.vertical` or `right.vertical` with `global_axis_hint = Z_height`, which lets later LLM/MCP workflows quickly find candidate features for requests such as "increase this part height by 100 mm".
+
+0d. Search the generated structural feature annotations before CAD edits:
+
+```text
+SearchStructuralFeatureTargets(
+  annotationPath="C:\\temp\\featru_tree_FL9A项目号A401.001\\feature-structure-annotations.json",
+  direction="height",
+  query="整体高度增加100mm",
+  onlyStructural=true,
+  maxResults=20
+)
+```
+
+This MCP tool is intended for automatic LLM use when a user asks to change an overall structure dimension but does not name the exact feature. It reads `feature-structure-annotations.json`, first filters to `IsStructural == true` by default, then matches the requested direction against `PrimaryDirection.global_axis_hint` and `AffectedDirections[*].global_axis_hint`. The `direction` argument accepts `height`, `width`, `depth`, `x`, `y`, `z`, `X_width`, `Y_depth`, `Z_height`, exact view labels such as `front.vertical` or `top.horizontal`, `all`, or it can be omitted so the tool infers the direction from `query`.
+
+The returned matches include `NodeId`, `SourceIndex`, `Name`, `FeatureTypeName`, `FeaturePath`, `GraphPath`, `DocumentPath`, `HierarchyPath`, `ThreeViewOutputDirectory`, `Images`, matched direction labels, matched `global_axis_hint` values, and the original VLM structural fields. For example, a height request should search for `Z_height` candidates, then later editing tools can use the returned feature address fields to inspect or modify the likely dimension-driving feature.
+
 1. Capture a manifest and front/top/right images for the active assembly:
 
 ```text
